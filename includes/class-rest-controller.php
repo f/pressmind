@@ -1,0 +1,845 @@
+<?php
+/**
+ * REST API controller.
+ *
+ * @package Pressmind
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Handles editor generation requests.
+ */
+class Pressmind_REST_Controller {
+	const NAMESPACE = 'pressmind/v1';
+	const ROUTE     = '/generate';
+	const STREAM_ROUTE = '/generate-stream';
+
+	/**
+	 * AI provider.
+	 *
+	 * @var Pressmind_AI_Provider
+	 */
+	private $provider;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param Pressmind_AI_Provider $provider AI provider.
+	 */
+	public function __construct( Pressmind_AI_Provider $provider ) {
+		$this->provider = $provider;
+	}
+
+	/**
+	 * Register WordPress hooks.
+	 */
+	public function register() {
+		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+	}
+
+	/**
+	 * Register routes.
+	 */
+	public function register_routes() {
+		register_rest_route(
+			self::NAMESPACE,
+			self::ROUTE,
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'generate' ),
+				'permission_callback' => array( $this, 'permissions_check' ),
+				'args'                => array(
+					'prompt'  => array(
+						'required'          => true,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_textarea_field',
+					),
+					'postId'  => array(
+						'required'          => false,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+					'context' => array(
+						'required' => false,
+						'type'     => 'object',
+					),
+				),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			self::STREAM_ROUTE,
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'stream_generate' ),
+				'permission_callback' => array( $this, 'permissions_check' ),
+				'args'                => array(
+					'prompt'  => array(
+						'required'          => true,
+						'type'              => 'string',
+						'sanitize_callback' => 'sanitize_textarea_field',
+					),
+					'postId'  => array(
+						'required'          => false,
+						'type'              => 'integer',
+						'sanitize_callback' => 'absint',
+					),
+					'context' => array(
+						'required' => false,
+						'type'     => 'object',
+					),
+				),
+			)
+		);
+	}
+
+	/**
+	 * Check request permissions.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return bool|WP_Error
+	 */
+	public function permissions_check( WP_REST_Request $request ) {
+		$post_id = absint( $request->get_param( 'postId' ) );
+
+		if ( $post_id > 0 ) {
+			return current_user_can( 'edit_post', $post_id );
+		}
+
+		return current_user_can( 'edit_posts' );
+	}
+
+	/**
+	 * Generate blocks.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_REST_Response|WP_Error
+	 */
+	public function generate( WP_REST_Request $request ) {
+		$prompt  = trim( (string) $request->get_param( 'prompt' ) );
+		$post_id = absint( $request->get_param( 'postId' ) );
+		$context = $request->get_param( 'context' );
+		$context = is_array( $context ) ? $context : array();
+
+		if ( '' === $prompt ) {
+			return new WP_Error(
+				'pressmind_empty_prompt',
+				__( 'Prompt cannot be empty.', 'pressmind' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$context = $this->hydrate_context( $context, $post_id );
+		$result  = $this->provider->generate( $prompt, $context );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$result = $this->import_assets( $result );
+		$result = $this->sanitize_generation_result( $result );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return rest_ensure_response( $result );
+	}
+
+	/**
+	 * Stream AI tokens to the editor, then send sanitized final blocks.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 * @return WP_Error|void
+	 */
+	public function stream_generate( WP_REST_Request $request ) {
+		$prompt  = trim( (string) $request->get_param( 'prompt' ) );
+		$post_id = absint( $request->get_param( 'postId' ) );
+		$context = $request->get_param( 'context' );
+		$context = is_array( $context ) ? $context : array();
+
+		if ( '' === $prompt ) {
+			return new WP_Error(
+				'pressmind_empty_prompt',
+				__( 'Prompt cannot be empty.', 'pressmind' ),
+				array( 'status' => 400 )
+			);
+		}
+
+		$this->start_event_stream();
+		$this->send_event_stream_message(
+			'start',
+			array(
+				'message' => __( 'Connected. Waiting for AI tokens...', 'pressmind' ),
+			)
+		);
+		$context = $this->hydrate_context( $context, $post_id );
+		$result  = $this->provider->stream_generate(
+			$prompt,
+			$context,
+			function ( $token ) {
+				$this->send_event_stream_message(
+					'token',
+					array(
+						'token' => $token,
+					)
+				);
+			}
+		);
+
+		if ( is_wp_error( $result ) ) {
+			$this->send_event_stream_message(
+				'error',
+				array(
+					'message' => $result->get_error_message(),
+				)
+			);
+			$this->send_event_stream_message( 'done', array() );
+			exit;
+		}
+
+		$result = $this->import_assets( $result );
+		$result = $this->sanitize_generation_result( $result );
+
+		if ( is_wp_error( $result ) ) {
+			$this->send_event_stream_message(
+				'error',
+				array(
+					'message' => $result->get_error_message(),
+				)
+			);
+			$this->send_event_stream_message( 'done', array() );
+			exit;
+		}
+
+		$this->send_event_stream_message( 'final', $result );
+		$this->send_event_stream_message( 'done', array() );
+		exit;
+	}
+
+	/**
+	 * Start a server-sent events response.
+	 */
+	private function start_event_stream() {
+		if ( function_exists( 'apache_setenv' ) ) {
+			apache_setenv( 'no-gzip', '1' );
+		}
+
+		@ini_set( 'zlib.output_compression', '0' );
+		@ini_set( 'output_buffering', 'off' );
+		nocache_headers();
+		header( 'Content-Type: text/event-stream; charset=' . get_option( 'blog_charset' ) );
+		header( 'Cache-Control: no-cache, no-transform' );
+		header( 'Connection: keep-alive' );
+		header( 'X-Accel-Buffering: no' );
+
+		if ( function_exists( 'ob_implicit_flush' ) ) {
+			ob_implicit_flush( true );
+		}
+
+		while ( ob_get_level() > 0 ) {
+			ob_end_flush();
+		}
+
+		echo ':' . str_repeat( ' ', 2048 ) . "\n\n";
+		flush();
+	}
+
+	/**
+	 * Send a server-sent events message.
+	 *
+	 * @param string $event Event name.
+	 * @param array  $data  Event data.
+	 */
+	private function send_event_stream_message( $event, array $data ) {
+		echo 'event: ' . sanitize_key( $event ) . "\n";
+		echo 'data: ' . wp_json_encode( $data ) . "\n\n";
+
+		if ( function_exists( 'wp_ob_end_flush_all' ) ) {
+			wp_ob_end_flush_all();
+		}
+
+		flush();
+	}
+
+	/**
+	 * Add trusted server-side post data to client context.
+	 *
+	 * @param array $context Client context.
+	 * @param int   $post_id Post ID.
+	 * @return array
+	 */
+	private function hydrate_context( array $context, $post_id ) {
+		if ( $post_id <= 0 ) {
+			return $context;
+		}
+
+		$post = get_post( $post_id );
+
+		if ( ! $post ) {
+			return $context;
+		}
+
+		$context['serverPost'] = array(
+			'id'      => $post->ID,
+			'type'    => $post->post_type,
+			'title'   => get_the_title( $post ),
+			'excerpt' => $post->post_excerpt,
+			'status'  => $post->post_status,
+		);
+
+		return $context;
+	}
+
+	/**
+	 * Import generated assets into the Media Library when possible.
+	 *
+	 * @param array $result Generation result.
+	 * @return array
+	 */
+	private function import_assets( array $result ) {
+		if ( empty( $result['assets'] ) || ! is_array( $result['assets'] ) ) {
+			return $result;
+		}
+
+		$imported_assets = array();
+		$blocks          = isset( $result['serializedBlocks'] ) ? (string) $result['serializedBlocks'] : '';
+
+		foreach ( $result['assets'] as $asset ) {
+			if ( ! is_array( $asset ) ) {
+				continue;
+			}
+
+			$imported = $this->import_asset( $asset );
+
+			if ( is_wp_error( $imported ) ) {
+				$result['warnings'][] = $imported->get_error_message();
+				continue;
+			}
+
+			if ( ! empty( $asset['placeholder'] ) && ! empty( $imported['url'] ) ) {
+				$blocks = str_replace( $asset['placeholder'], $imported['url'], $blocks );
+			}
+
+			$imported_assets[] = $imported;
+		}
+
+		$result['serializedBlocks'] = $blocks;
+		$result['assets']           = $imported_assets;
+
+		return $result;
+	}
+
+	/**
+	 * Import a single asset.
+	 *
+	 * @param array $asset Asset data.
+	 * @return array|WP_Error
+	 */
+	private function import_asset( array $asset ) {
+		$type     = isset( $asset['type'] ) ? sanitize_key( $asset['type'] ) : 'asset';
+		$url      = isset( $asset['url'] ) ? esc_url_raw( $asset['url'] ) : '';
+		$prompt   = isset( $asset['prompt'] ) ? sanitize_textarea_field( $asset['prompt'] ) : '';
+		$filename = isset( $asset['filename'] ) ? sanitize_file_name( $asset['filename'] ) : '';
+
+		if ( empty( $filename ) ) {
+			$filename = 'image' === $type ? 'pressmind-generated-image.png' : 'pressmind-generated-asset';
+		}
+
+		if ( ! $url && 'image' === $type && $prompt ) {
+			return $this->import_generated_image_asset( $prompt, $filename );
+		}
+
+		if ( ! $url ) {
+			return new WP_Error(
+				'pressmind_asset_missing_url',
+				__( 'Generated asset did not include an importable URL.', 'pressmind' )
+			);
+		}
+
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$temp_file = download_url( $url, 30 );
+
+		if ( is_wp_error( $temp_file ) ) {
+			return $temp_file;
+		}
+
+		$file_array = array(
+			'name'     => $filename,
+			'tmp_name' => $temp_file,
+		);
+
+		$attachment_id = media_handle_sideload( $file_array, 0 );
+
+		if ( is_wp_error( $attachment_id ) ) {
+			@unlink( $temp_file );
+			return $attachment_id;
+		}
+
+		return array(
+			'id'   => $attachment_id,
+			'url'  => wp_get_attachment_url( $attachment_id ),
+			'type' => $type,
+		);
+	}
+
+	/**
+	 * Generate an image and import it into the Media Library.
+	 *
+	 * @param string $prompt   Image prompt.
+	 * @param string $filename Desired filename.
+	 * @return array|WP_Error
+	 */
+	private function import_generated_image_asset( $prompt, $filename ) {
+		if ( ! $this->provider->is_image_generation_enabled() ) {
+			return new WP_Error(
+				'pressmind_image_generation_disabled',
+				__( 'Image generation is disabled in plugin settings.', 'pressmind' )
+			);
+		}
+
+		$image = $this->provider->generate_image( $prompt );
+
+		if ( is_wp_error( $image ) ) {
+			return $image;
+		}
+
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$extension = isset( $image['extension'] ) ? sanitize_key( $image['extension'] ) : 'png';
+		$filename  = preg_replace( '/\.[a-z0-9]+$/i', '', $filename ) . '.' . $extension;
+		$temp_file = wp_tempnam( $filename );
+
+		if ( ! $temp_file ) {
+			return new WP_Error(
+				'pressmind_image_temp_file_failed',
+				__( 'Could not create a temporary file for the generated image.', 'pressmind' )
+			);
+		}
+
+		if ( false === file_put_contents( $temp_file, $image['bytes'] ) ) {
+			@unlink( $temp_file );
+
+			return new WP_Error(
+				'pressmind_image_write_failed',
+				__( 'Could not write the generated image file.', 'pressmind' )
+			);
+		}
+
+		$file_array = array(
+			'name'     => sanitize_file_name( $filename ),
+			'tmp_name' => $temp_file,
+			'type'     => isset( $image['mime_type'] ) ? $image['mime_type'] : 'image/png',
+		);
+
+		$attachment_id = media_handle_sideload( $file_array, 0 );
+
+		if ( is_wp_error( $attachment_id ) ) {
+			@unlink( $temp_file );
+			return $attachment_id;
+		}
+
+		return array(
+			'id'   => $attachment_id,
+			'url'  => wp_get_attachment_url( $attachment_id ),
+			'type' => 'image',
+		);
+	}
+
+	/**
+	 * Sanitize and validate a generation result.
+	 *
+	 * @param array $result Generation result.
+	 * @return array|WP_Error
+	 */
+	private function sanitize_generation_result( array $result ) {
+		$serialized_blocks = isset( $result['serializedBlocks'] ) ? trim( (string) $result['serializedBlocks'] ) : '';
+
+		if ( '' === $serialized_blocks ) {
+			return new WP_Error(
+				'pressmind_empty_blocks',
+				__( 'AI provider did not return any block markup.', 'pressmind' ),
+				array( 'status' => 502 )
+			);
+		}
+
+		$blocks = parse_blocks( $serialized_blocks );
+		$blocks = $this->sanitize_blocks( $blocks );
+
+		if ( empty( $blocks ) ) {
+			return new WP_Error(
+				'pressmind_invalid_blocks',
+				__( 'AI provider returned unsupported or invalid block markup.', 'pressmind' ),
+				array( 'status' => 502 )
+			);
+		}
+
+		return array(
+			'summary'          => isset( $result['summary'] ) ? sanitize_text_field( $result['summary'] ) : '',
+			'serializedBlocks' => serialize_blocks( $blocks ),
+			'assets'           => isset( $result['assets'] ) && is_array( $result['assets'] ) ? $result['assets'] : array(),
+			'warnings'         => isset( $result['warnings'] ) && is_array( $result['warnings'] ) ? array_values( array_map( 'sanitize_text_field', $result['warnings'] ) ) : array(),
+		);
+	}
+
+	/**
+	 * Sanitize parsed blocks and remove unsupported blocks.
+	 *
+	 * @param array $blocks Parsed blocks.
+	 * @return array
+	 */
+	private function sanitize_blocks( array $blocks ) {
+		$sanitized = array();
+
+		foreach ( $blocks as $block ) {
+			if ( empty( $block['blockName'] ) && empty( trim( $block['innerHTML'] ?? '' ) ) ) {
+				continue;
+			}
+
+			if ( ! empty( $block['blockName'] ) && ! in_array( $block['blockName'], $this->get_allowed_blocks(), true ) ) {
+				continue;
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$block['innerBlocks'] = $this->sanitize_blocks( $block['innerBlocks'] );
+			}
+
+			if ( isset( $block['blockName'] ) && 'pressmind/sandbox' === $block['blockName'] ) {
+				$block['attrs']        = $this->sanitize_sandbox_attrs(
+					isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array()
+				);
+				$block['innerHTML']    = '';
+				$block['innerContent'] = array();
+				$sanitized[]           = $block;
+				continue;
+			}
+
+			if ( isset( $block['blockName'] ) && 'core/html' === $block['blockName'] && $this->should_convert_html_to_sandbox( $block ) ) {
+				$sanitized[] = $this->convert_html_block_to_sandbox( $block );
+				continue;
+			}
+
+			$block['attrs']       = $this->sanitize_block_attrs(
+				isset( $block['blockName'] ) ? $block['blockName'] : '',
+				isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array()
+			);
+			$block['innerHTML']   = isset( $block['innerHTML'] ) ? $this->sanitize_html( $block['innerHTML'] ) : '';
+			$block['innerContent'] = isset( $block['innerContent'] ) && is_array( $block['innerContent'] )
+				? array_map( array( $this, 'sanitize_inner_content' ), $block['innerContent'] )
+				: array();
+
+			$sanitized[] = $block;
+		}
+
+		return $sanitized;
+	}
+
+	/**
+	 * Determine whether a Custom HTML block needs iframe isolation.
+	 *
+	 * @param array $block Parsed block.
+	 * @return bool
+	 */
+	private function should_convert_html_to_sandbox( array $block ) {
+		$html = $this->get_block_html_source( $block );
+
+		return (bool) preg_match( '/<\s*(script|style)\b|\son[a-z]+\s*=/i', $html );
+	}
+
+	/**
+	 * Convert interactive Custom HTML into the sandbox block.
+	 *
+	 * @param array $block Parsed core/html block.
+	 * @return array
+	 */
+	private function convert_html_block_to_sandbox( array $block ) {
+		$html = $this->get_block_html_source( $block );
+		$css  = '';
+		$js   = '';
+
+		if ( preg_match_all( '/<\s*style\b[^>]*>(.*?)<\s*\/\s*style\s*>/is', $html, $matches ) ) {
+			$css = trim( implode( "\n\n", $matches[1] ) );
+		}
+
+		if ( preg_match_all( '/<\s*script\b[^>]*>(.*?)<\s*\/\s*script\s*>/is', $html, $matches ) ) {
+			$js = trim( implode( "\n\n", $matches[1] ) );
+		}
+
+		$html = preg_replace( '/<\s*style\b[^>]*>.*?<\s*\/\s*style\s*>/is', '', $html );
+		$html = preg_replace( '/<\s*script\b[^>]*>.*?<\s*\/\s*script\s*>/is', '', $html );
+
+		return array(
+			'blockName'    => 'pressmind/sandbox',
+			'attrs'        => $this->sanitize_sandbox_attrs(
+				array(
+					'title'  => __( 'AI generated interactive content', 'pressmind' ),
+					'height' => 640,
+					'html'   => $html,
+					'css'    => $css,
+					'js'     => $js,
+				)
+			),
+			'innerBlocks'  => array(),
+			'innerHTML'    => '',
+			'innerContent' => array(),
+		);
+	}
+
+	/**
+	 * Get the original HTML-like source for a parsed block.
+	 *
+	 * @param array $block Parsed block.
+	 * @return string
+	 */
+	private function get_block_html_source( array $block ) {
+		if ( ! empty( $block['innerHTML'] ) ) {
+			return (string) $block['innerHTML'];
+		}
+
+		if ( empty( $block['innerContent'] ) || ! is_array( $block['innerContent'] ) ) {
+			return '';
+		}
+
+		return implode(
+			'',
+			array_filter(
+				$block['innerContent'],
+				function ( $content ) {
+					return is_string( $content );
+				}
+			)
+		);
+	}
+
+	/**
+	 * Sanitize innerContent strings while preserving null child markers.
+	 *
+	 * @param mixed $content Inner content item.
+	 * @return mixed
+	 */
+	public function sanitize_inner_content( $content ) {
+		if ( null === $content ) {
+			return null;
+		}
+
+		return is_string( $content ) ? $this->sanitize_html( $content ) : '';
+	}
+
+	/**
+	 * Sanitize block attributes conservatively before re-serializing comments.
+	 *
+	 * @param string $block_name Block name.
+	 * @param array  $attrs      Block attributes.
+	 * @return array
+	 */
+	private function sanitize_block_attrs( $block_name, array $attrs ) {
+		$clean = array();
+
+		foreach ( $attrs as $key => $value ) {
+			$key = preg_replace( '/[^A-Za-z0-9_]/', '', (string) $key );
+
+			if ( '' === $key ) {
+				continue;
+			}
+
+			if ( in_array( $key, array( 'url', 'href' ), true ) ) {
+				$clean[ $key ] = esc_url_raw( (string) $value );
+				continue;
+			}
+
+			if ( in_array( $key, array( 'id', 'width', 'height' ), true ) ) {
+				$clean[ $key ] = absint( $value );
+				continue;
+			}
+
+			if ( is_bool( $value ) || is_int( $value ) || is_float( $value ) ) {
+				$clean[ $key ] = $value;
+				continue;
+			}
+
+			if ( is_string( $value ) ) {
+				$clean[ $key ] = sanitize_text_field( $value );
+				continue;
+			}
+
+			if ( is_array( $value ) && in_array( $block_name, array( 'core/group', 'core/columns', 'core/column' ), true ) ) {
+				$clean[ $key ] = $this->sanitize_nested_attr_array( $value );
+			}
+		}
+
+		if ( 'core/html' === $block_name ) {
+			$clean['preview'] = true;
+		}
+
+		return $clean;
+	}
+
+	/**
+	 * Sanitize nested layout-like block attributes.
+	 *
+	 * @param array $value Attribute array.
+	 * @return array
+	 */
+	private function sanitize_nested_attr_array( array $value ) {
+		$clean = array();
+
+		foreach ( $value as $key => $item ) {
+			$key = preg_replace( '/[^A-Za-z0-9_]/', '', (string) $key );
+
+			if ( '' === $key ) {
+				continue;
+			}
+
+			if ( is_bool( $item ) || is_int( $item ) || is_float( $item ) ) {
+				$clean[ $key ] = $item;
+				continue;
+			}
+
+			if ( is_string( $item ) ) {
+				$clean[ $key ] = sanitize_text_field( $item );
+			}
+		}
+
+		return $clean;
+	}
+
+	/**
+	 * Allowed block names for AI output.
+	 *
+	 * @return array
+	 */
+	private function get_allowed_blocks() {
+		return array(
+			'core/paragraph',
+			'core/heading',
+			'core/group',
+			'core/columns',
+			'core/column',
+			'core/html',
+			'core/table',
+			'core/image',
+			'core/list',
+			'core/list-item',
+			'core/quote',
+			'core/details',
+			'core/buttons',
+			'core/button',
+			'core/separator',
+			'core/spacer',
+			'core/embed',
+			'pressmind/sandbox',
+		);
+	}
+
+	/**
+	 * Sanitize sandbox block attributes while preserving self-contained code.
+	 *
+	 * The code is not injected into the parent page. It renders only inside an
+	 * iframe without same-origin privileges, so scripts cannot reach WordPress.
+	 *
+	 * @param array $attrs Raw block attributes.
+	 * @return array
+	 */
+	private function sanitize_sandbox_attrs( array $attrs ) {
+		return array(
+			'title'  => isset( $attrs['title'] ) ? sanitize_text_field( $attrs['title'] ) : __( 'AI generated interactive content', 'pressmind' ),
+			'height' => isset( $attrs['height'] ) ? max( 240, min( 1200, absint( $attrs['height'] ) ) ) : 640,
+			'html'   => isset( $attrs['html'] ) ? $this->strip_sandbox_network_access( (string) $attrs['html'] ) : '',
+			'css'    => isset( $attrs['css'] ) ? $this->strip_sandbox_network_access( (string) $attrs['css'] ) : '',
+			'js'     => isset( $attrs['js'] ) ? $this->strip_sandbox_network_access( (string) $attrs['js'] ) : '',
+		);
+	}
+
+	/**
+	 * Remove obvious external access primitives from sandboxed snippets.
+	 *
+	 * @param string $code Snippet.
+	 * @return string
+	 */
+	private function strip_sandbox_network_access( $code ) {
+		$patterns = array(
+			'/<\s*iframe\b[^>]*>.*?<\s*\/\s*iframe\s*>/is',
+			'/<\s*(script|link)\b[^>]*(src|href)\s*=\s*["\'][^"\']+["\'][^>]*>.*?(?:<\s*\/\s*\1\s*>)?/is',
+			'/\b(fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(/i',
+			'/\b(localStorage|sessionStorage|indexedDB|document\.cookie)\b/i',
+			'/\b(window\.top|window\.parent|parent\.)\b/i',
+			'/@import\s+url\s*\([^)]*\)\s*;?/i',
+			'/url\s*\(\s*["\']?https?:\/\/[^)]*\)/i',
+		);
+
+		return preg_replace( $patterns, '', $code );
+	}
+
+	/**
+	 * Sanitize generated HTML, including a conservative inline SVG allowlist.
+	 *
+	 * @param string $html HTML.
+	 * @return string
+	 */
+	private function sanitize_html( $html ) {
+		$allowed = wp_kses_allowed_html( 'post' );
+
+		$allowed['svg'] = array(
+			'aria-hidden'     => true,
+			'aria-label'      => true,
+			'class'           => true,
+			'fill'            => true,
+			'height'          => true,
+			'role'            => true,
+			'stroke'          => true,
+			'stroke-linecap'  => true,
+			'stroke-linejoin' => true,
+			'stroke-width'    => true,
+			'viewbox'         => true,
+			'viewBox'         => true,
+			'width'           => true,
+			'xmlns'           => true,
+		);
+
+		foreach ( array( 'circle', 'ellipse', 'g', 'line', 'path', 'polygon', 'polyline', 'rect', 'text', 'tspan' ) as $tag ) {
+			$allowed[ $tag ] = array(
+				'aria-label'      => true,
+				'class'           => true,
+				'cx'              => true,
+				'cy'              => true,
+				'd'               => true,
+				'fill'            => true,
+				'font-family'     => true,
+				'font-size'       => true,
+				'font-weight'     => true,
+				'height'          => true,
+				'points'          => true,
+				'r'               => true,
+				'rx'              => true,
+				'ry'              => true,
+				'stroke'          => true,
+				'stroke-linecap'  => true,
+				'stroke-linejoin' => true,
+				'stroke-width'    => true,
+				'text-anchor'     => true,
+				'transform'       => true,
+				'width'           => true,
+				'x'               => true,
+				'x1'              => true,
+				'x2'              => true,
+				'y'               => true,
+				'y1'              => true,
+				'y2'              => true,
+			);
+		}
+
+		$allowed['title'] = array();
+		$allowed['desc']  = array();
+
+		return wp_kses( $html, $allowed );
+	}
+}

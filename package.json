@@ -1,0 +1,29 @@
+{
+	"name": "pressmind",
+	"version": "0.1.0",
+	"description": "Generate Gutenberg-compatible blocks from prompts and current post context.",
+	"license": "GPL-2.0-or-later",
+	"scripts": {
+		"build": "wp-scripts build src/ai-prompt-block/index.js --output-path=build/ai-prompt-block && cp src/ai-prompt-block/block.json build/ai-prompt-block/block.json",
+		"start": "wp-scripts start src/ai-prompt-block/index.js --output-path=build/ai-prompt-block",
+		"playground": "npm run build && npx @wp-playground/cli start --login",
+		"vectorize:logo": "node scripts/vectorize-logo.cjs",
+		"lint:js": "wp-scripts lint-js src",
+		"format": "wp-scripts format"
+	},
+	"devDependencies": {
+		"@wordpress/scripts": "latest",
+		"imagetracerjs": "^1.2.6",
+		"pngjs": "^7.0.0"
+	},
+	"dependencies": {
+		"@wordpress/api-fetch": "^7.45.0",
+		"@wordpress/block-editor": "^15.18.0",
+		"@wordpress/blocks": "^15.18.0",
+		"@wordpress/components": "^33.0.0",
+		"@wordpress/data": "^10.45.0",
+		"@wordpress/element": "^6.45.0",
+		"@wordpress/hooks": "^4.45.0",
+		"@wordpress/i18n": "^6.18.0"
+	}
+}
