@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Pressmind
  * Description: Generate Gutenberg-compatible blocks from prompts and current post context.
- * Version: 0.1.0
+ * Version: 0.0.1
  * Author: Pressmind
  * Text Domain: pressmind
  *
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'PRESSMIND_VERSION', '0.1.0' );
+define( 'PRESSMIND_VERSION', '0.0.1' );
 define( 'PRESSMIND_PLUGIN_FILE', __FILE__ );
 define( 'PRESSMIND_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PRESSMIND_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
