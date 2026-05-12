@@ -1,4 +1,9 @@
-import { parse, registerBlockType, serialize } from '@wordpress/blocks';
+import {
+	createBlock,
+	parse,
+	registerBlockType,
+	serialize,
+} from '@wordpress/blocks';
 import { useBlockProps } from '@wordpress/block-editor';
 import {
 	Button,
@@ -8,7 +13,7 @@ import {
 	TextareaControl,
 } from '@wordpress/components';
 import { useDispatch, useSelect } from '@wordpress/data';
-import { useState } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { addFilter } from '@wordpress/hooks';
 import { __ } from '@wordpress/i18n';
 
@@ -17,13 +22,94 @@ import metadata from './block.json';
 import './editor.scss';
 import save from './save';
 
+const stripHtml = ( value = '' ) => {
+	const element = document.createElement( 'div' );
+	element.innerHTML = value;
+
+	return ( element.textContent || element.innerText || '' ).trim();
+};
+
+const textFromAttributes = ( attributes = {} ) =>
+	stripHtml(
+		attributes.content ||
+			attributes.value ||
+			attributes.values ||
+			attributes.citation ||
+			''
+	);
+
+const createPromptBlockFromText = ( attributes ) =>
+	createBlock( metadata.name, {
+		prompt: textFromAttributes( attributes ),
+	} );
+
 registerBlockType( metadata.name, {
 	edit: Edit,
 	save,
+	transforms: {
+		from: [
+			{
+				type: 'block',
+				blocks: [
+					'core/paragraph',
+					'core/heading',
+					'core/quote',
+					'core/list',
+					'core/preformatted',
+					'core/code',
+					'core/verse',
+				],
+				transform: createPromptBlockFromText,
+			},
+		],
+	},
 } );
 
-const buildSandboxSrcDoc = ( { html = '', css = '', js = '' } ) => {
+const buildSandboxSrcDoc = ( { html = '', css = '', js = '' }, sandboxId ) => {
 	const safeJs = js.replace( /<\/script/gi, '<\\/script' );
+	const resizeScript = `
+		(function () {
+			var sandboxId = ${ JSON.stringify( sandboxId ) };
+			var lastHeight = 0;
+			function measure() {
+				var body = document.body;
+				var html = document.documentElement;
+				var height = Math.ceil(Math.max(
+					body ? body.scrollHeight : 0,
+					body ? body.offsetHeight : 0,
+					html ? html.scrollHeight : 0,
+					html ? html.offsetHeight : 0
+				));
+				if (height && Math.abs(height - lastHeight) > 1) {
+					lastHeight = height;
+					parent.postMessage({ type: 'pressmind:sandbox:resize', id: sandboxId, height: height }, '*');
+				}
+			}
+			window.addEventListener('load', measure);
+			window.addEventListener('resize', measure);
+			if (window.ResizeObserver) {
+				new ResizeObserver(measure).observe(document.documentElement);
+				if (document.body) {
+					new ResizeObserver(measure).observe(document.body);
+				}
+			}
+			if (window.MutationObserver) {
+				new MutationObserver(measure).observe(document.documentElement, {
+					childList: true,
+					subtree: true,
+					attributes: true,
+					characterData: true
+				});
+			}
+			document.addEventListener('load', function (event) {
+				if (event.target && event.target.tagName === 'IMG') {
+					measure();
+				}
+			}, true);
+			setTimeout(measure, 0);
+			setTimeout(measure, 100);
+			setTimeout(measure, 500);
+		})();`.replace( /<\/script/gi, '<\\/script' );
 
 	return `<!doctype html>
 <html>
@@ -38,19 +124,52 @@ const buildSandboxSrcDoc = ( { html = '', css = '', js = '' } ) => {
 	</head>
 	<body>
 		${ html }
+		<script>${ resizeScript }</script>
 		<script>${ safeJs }</script>
 	</body>
 </html>`;
 };
 
-function SandboxEdit( { attributes, setAttributes, isSelected } ) {
+function SandboxEdit( { attributes, setAttributes, isSelected, clientId } ) {
 	const blockProps = useBlockProps( {
 		className: 'pressmind-sandbox-block',
 	} );
-	const height = Math.max(
-		240,
-		Math.min( 1200, Number( attributes.height ) || 640 )
-	);
+	const iframeRef = useRef();
+	const sandboxId = `pressmind-sandbox-${ clientId }`;
+	const minHeight = Math.max( 240, Number( attributes.height ) || 640 );
+	const [ iframeHeight, setIframeHeight ] = useState( minHeight );
+
+	useEffect( () => {
+		setIframeHeight( minHeight );
+	}, [ minHeight, attributes.html, attributes.css, attributes.js ] );
+
+	useEffect( () => {
+		const handleMessage = ( event ) => {
+			if ( event.source !== iframeRef.current?.contentWindow ) {
+				return;
+			}
+
+			const data = event.data || {};
+
+			if (
+				data.type !== 'pressmind:sandbox:resize' ||
+				data.id !== sandboxId
+			) {
+				return;
+			}
+
+			const nextHeight = Math.max(
+				minHeight,
+				Number( data.height ) || 0
+			);
+
+			setIframeHeight( nextHeight );
+		};
+
+		window.addEventListener( 'message', handleMessage );
+
+		return () => window.removeEventListener( 'message', handleMessage );
+	}, [ minHeight, sandboxId ] );
 
 	return (
 		<div { ...blockProps }>
@@ -92,17 +211,18 @@ function SandboxEdit( { attributes, setAttributes, isSelected } ) {
 				</div>
 			) : null }
 			<iframe
+				ref={ iframeRef }
 				title={ attributes.title }
 				sandbox="allow-scripts"
 				referrerPolicy="no-referrer"
 				scrolling="no"
-				srcDoc={ buildSandboxSrcDoc( attributes ) }
+				srcDoc={ buildSandboxSrcDoc( attributes, sandboxId ) }
 				style={ {
 					background: '#fff',
 					border: '1px solid #ddd',
 					borderRadius: '4px',
 					display: 'block',
-					height,
+					height: iframeHeight,
 					overflow: 'hidden',
 					width: '100%',
 				} }

@@ -319,6 +319,13 @@ class Pressmind_AI_Provider {
 		}
 
 		$image_base64 = isset( $body['data'][0]['b64_json'] ) ? $body['data'][0]['b64_json'] : '';
+		$image_url    = isset( $body['data'][0]['url'] ) ? esc_url_raw( $body['data'][0]['url'] ) : '';
+
+		if ( $image_url ) {
+			return array(
+				'url' => $image_url,
+			);
+		}
 
 		if ( '' === $image_base64 ) {
 			return new WP_Error(
@@ -397,7 +404,7 @@ If you cannot safely satisfy part of the request, still return valid serializedB
 PROMPT;
 
 		if ( ! empty( $options['enable_image_generation'] ) ) {
-			$prompt .= "\n\nImage generation is enabled. When the user asks for a generated image, return a core/image block whose url uses a unique placeholder like PRESSMIND_IMAGE_1, and add a matching asset object: {\"type\":\"image\",\"placeholder\":\"PRESSMIND_IMAGE_1\",\"filename\":\"descriptive-name.png\",\"prompt\":\"Detailed prompt for the image generation model\"}. The PHP backend will generate the image, import it into the WordPress Media Library, and replace the placeholder with the real URL.";
+			$prompt .= "\n\nImage generation is enabled. When the user asks for a generated image, return a core/image block whose url uses a unique placeholder like PRESSMIND_IMAGE_1, and add a matching asset object: {\"type\":\"image\",\"placeholder\":\"PRESSMIND_IMAGE_1\",\"filename\":\"descriptive-name.png\",\"prompt\":\"Detailed prompt for the image generation model\"}. The PHP backend will generate the image first, import it into the WordPress Media Library, replace the placeholder with the real Media Library URL, and attach the generated attachment ID to the core/image block before returning it to the editor.";
 		} else {
 			$prompt .= "\n\nImage generation is disabled. If the user asks for a generated image, do not invent image URLs. Return a warning and offer a non-image block alternative when useful.";
 		}

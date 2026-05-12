@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Pressmind
  * Description: Generate Gutenberg-compatible blocks from prompts and current post context.
- * Version: 0.0.1
+ * Version: 0.0.2
  * Author: Pressmind
  * Text Domain: pressmind
  *
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'PRESSMIND_VERSION', '0.0.1' );
+define( 'PRESSMIND_VERSION', '0.0.2' );
 define( 'PRESSMIND_PLUGIN_FILE', __FILE__ );
 define( 'PRESSMIND_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PRESSMIND_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -81,14 +81,19 @@ function pressmind_render_sandbox_block( $attributes ) {
 	$css    = isset( $attributes['css'] ) ? (string) $attributes['css'] : '';
 	$js     = isset( $attributes['js'] ) ? (string) $attributes['js'] : '';
 	$height = isset( $attributes['height'] ) ? absint( $attributes['height'] ) : 640;
-	$height = max( 240, min( 1200, $height ) );
-	$srcdoc = pressmind_build_sandbox_srcdoc( $html, $css, $js );
+	$height = max( 240, $height );
+	$id     = wp_unique_id( 'pressmind-sandbox-' );
+	$srcdoc = pressmind_build_sandbox_srcdoc( $html, $css, $js, $id );
 
 	return sprintf(
-		'<div class="wp-block-pressmind-sandbox"><iframe title="%1$s" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" scrolling="no" style="display:block;width:100%%;height:%2$dpx;border:1px solid #ddd;border-radius:4px;background:#fff;overflow:hidden;" srcdoc="%3$s"></iframe></div>',
+		'<div class="wp-block-pressmind-sandbox"><iframe id="%1$s" title="%2$s" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy" scrolling="no" style="display:block;width:100%%;height:%3$dpx;border:1px solid #ddd;border-radius:4px;background:#fff;overflow:hidden;" srcdoc="%4$s"></iframe><script>(function(){var iframe=document.getElementById("%5$s");if(!iframe){return;}window.addEventListener("message",function(event){if(event.source!==iframe.contentWindow){return;}var data=event.data||{};if(data.type!=="pressmind:sandbox:resize"||data.id!=="%6$s"){return;}var height=Math.max(%7$d,Number(data.height)||0);iframe.style.height=height+"px";});}());</script></div>',
+		esc_attr( $id ),
 		esc_attr( $title ),
 		$height,
-		esc_attr( $srcdoc )
+		esc_attr( $srcdoc ),
+		esc_js( $id ),
+		esc_js( $id ),
+		$height
 	);
 }
 
@@ -98,12 +103,18 @@ function pressmind_render_sandbox_block( $attributes ) {
  * @param string $html Body HTML.
  * @param string $css  Scoped CSS.
  * @param string $js   Inline JS.
+ * @param string $id   Sandbox iframe id.
  * @return string
  */
-function pressmind_build_sandbox_srcdoc( $html, $css, $js ) {
+function pressmind_build_sandbox_srcdoc( $html, $css, $js, $id ) {
 	$js = str_ireplace( '</script', '<\/script', $js );
+	$resize_script = sprintf(
+		'(function(){var sandboxId=%s;var lastHeight=0;function measure(){var body=document.body;var html=document.documentElement;var height=Math.ceil(Math.max(body?body.scrollHeight:0,body?body.offsetHeight:0,html?html.scrollHeight:0,html?html.offsetHeight:0));if(height&&Math.abs(height-lastHeight)>1){lastHeight=height;parent.postMessage({type:"pressmind:sandbox:resize",id:sandboxId,height:height},"*");}}window.addEventListener("load",measure);window.addEventListener("resize",measure);if(window.ResizeObserver){new ResizeObserver(measure).observe(document.documentElement);if(document.body){new ResizeObserver(measure).observe(document.body);}}if(window.MutationObserver){new MutationObserver(measure).observe(document.documentElement,{childList:true,subtree:true,attributes:true,characterData:true});}document.addEventListener("load",function(event){if(event.target&&event.target.tagName==="IMG"){measure();}},true);setTimeout(measure,0);setTimeout(measure,100);setTimeout(measure,500);}());',
+		wp_json_encode( $id )
+	);
+	$resize_script = str_ireplace( '</script', '<\/script', $resize_script );
 
-	return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0;box-sizing:border-box;overflow:hidden;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}*,*:before,*:after{box-sizing:inherit;}' . $css . '</style></head><body>' . $html . '<script>' . $js . '</script></body></html>';
+	return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0;box-sizing:border-box;overflow:hidden;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}*,*:before,*:after{box-sizing:inherit;}' . $css . '</style></head><body>' . $html . '<script>' . $resize_script . '</script><script>' . $js . '</script></body></html>';
 }
 
 /**

@@ -72,12 +72,12 @@ const parseServerSentEvent = ( rawEvent ) => {
 	};
 };
 
-export default function Edit( { clientId } ) {
+export default function Edit( { attributes, setAttributes, clientId } ) {
 	const blockProps = useBlockProps( {
 		className: 'pressmind-prompt-block',
 	} );
 
-	const [ prompt, setPrompt ] = useState( '' );
+	const [ prompt, setPromptState ] = useState( attributes.prompt || '' );
 	const [ streamText, setStreamText ] = useState( '' );
 	const [ streamStatus, setStreamStatus ] = useState( '' );
 	const [ isGenerating, setIsGenerating ] = useState( false );
@@ -127,6 +127,11 @@ export default function Edit( { clientId } ) {
 	const { replaceBlocks } = useDispatch( 'core/block-editor' );
 	const { createSuccessNotice, createErrorNotice } =
 		useDispatch( 'core/notices' );
+
+	const setPrompt = ( nextPrompt ) => {
+		setPromptState( nextPrompt );
+		setAttributes( { prompt: nextPrompt } );
+	};
 
 	const generateBlocks = async () => {
 		const trimmedPrompt = prompt.trim();

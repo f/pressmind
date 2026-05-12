@@ -323,15 +323,112 @@ class Pressmind_REST_Controller {
 
 			if ( ! empty( $asset['placeholder'] ) && ! empty( $imported['url'] ) ) {
 				$blocks = str_replace( $asset['placeholder'], $imported['url'], $blocks );
+				$imported['placeholder'] = $asset['placeholder'];
 			}
 
 			$imported_assets[] = $imported;
 		}
 
-		$result['serializedBlocks'] = $blocks;
+		$result['serializedBlocks'] = $this->add_imported_image_ids_to_blocks( $blocks, $imported_assets );
 		$result['assets']           = $imported_assets;
 
 		return $result;
+	}
+
+	/**
+	 * Add Media Library attachment IDs to generated image blocks.
+	 *
+	 * @param string $serialized_blocks Serialized blocks.
+	 * @param array  $imported_assets   Imported assets.
+	 * @return string
+	 */
+	private function add_imported_image_ids_to_blocks( $serialized_blocks, array $imported_assets ) {
+		$image_assets = array_values(
+			array_filter(
+				$imported_assets,
+				function ( $asset ) {
+					return is_array( $asset ) && 'image' === ( $asset['type'] ?? '' ) && ! empty( $asset['id'] ) && ! empty( $asset['url'] );
+				}
+			)
+		);
+
+		if ( empty( $image_assets ) ) {
+			return $serialized_blocks;
+		}
+
+		$blocks = parse_blocks( $serialized_blocks );
+		$blocks = $this->add_imported_image_ids_to_parsed_blocks( $blocks, $image_assets );
+
+		return serialize_blocks( $blocks );
+	}
+
+	/**
+	 * Recursively add imported image attachment IDs to parsed blocks.
+	 *
+	 * @param array $blocks       Parsed blocks.
+	 * @param array $image_assets Imported image assets.
+	 * @return array
+	 */
+	private function add_imported_image_ids_to_parsed_blocks( array $blocks, array $image_assets ) {
+		foreach ( $blocks as &$block ) {
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$block['innerBlocks'] = $this->add_imported_image_ids_to_parsed_blocks( $block['innerBlocks'], $image_assets );
+			}
+
+			if ( 'core/image' !== ( $block['blockName'] ?? '' ) ) {
+				continue;
+			}
+
+			$block_html = $this->get_block_html_source( $block );
+			$block_url  = isset( $block['attrs']['url'] ) ? (string) $block['attrs']['url'] : '';
+
+			foreach ( $image_assets as $asset ) {
+				if ( $block_url !== $asset['url'] && false === strpos( $block_html, $asset['url'] ) ) {
+					continue;
+				}
+
+				$block['attrs']['id']  = absint( $asset['id'] );
+				$block['attrs']['url'] = esc_url_raw( $asset['url'] );
+
+				if ( isset( $block['innerHTML'] ) ) {
+					$block['innerHTML'] = $this->add_wp_image_class_to_html( $block['innerHTML'], $asset['id'] );
+				}
+
+				if ( ! empty( $block['innerContent'] ) && is_array( $block['innerContent'] ) ) {
+					$block['innerContent'] = array_map(
+						function ( $content ) use ( $asset ) {
+							return is_string( $content ) ? $this->add_wp_image_class_to_html( $content, $asset['id'] ) : $content;
+						},
+						$block['innerContent']
+					);
+				}
+
+				break;
+			}
+		}
+
+		return $blocks;
+	}
+
+	/**
+	 * Ensure image markup contains the WordPress attachment class.
+	 *
+	 * @param string $html          HTML.
+	 * @param int    $attachment_id Attachment ID.
+	 * @return string
+	 */
+	private function add_wp_image_class_to_html( $html, $attachment_id ) {
+		$class = 'wp-image-' . absint( $attachment_id );
+
+		if ( false !== strpos( $html, $class ) ) {
+			return $html;
+		}
+
+		if ( preg_match( '/<img\b[^>]*class=["\'][^"\']*["\']/i', $html ) ) {
+			return preg_replace( '/(<img\b[^>]*class=["\'])([^"\']*)(["\'])/i', '$1$2 ' . $class . '$3', $html, 1 );
+		}
+
+		return preg_replace( '/<img\b/i', '<img class="' . esc_attr( $class ) . '"', $html, 1 );
 	}
 
 	/**
@@ -411,6 +508,10 @@ class Pressmind_REST_Controller {
 			return $image;
 		}
 
+		if ( ! empty( $image['url'] ) ) {
+			return $this->import_remote_image_asset( $image['url'], $filename );
+		}
+
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -439,6 +540,43 @@ class Pressmind_REST_Controller {
 			'name'     => sanitize_file_name( $filename ),
 			'tmp_name' => $temp_file,
 			'type'     => isset( $image['mime_type'] ) ? $image['mime_type'] : 'image/png',
+		);
+
+		$attachment_id = media_handle_sideload( $file_array, 0 );
+
+		if ( is_wp_error( $attachment_id ) ) {
+			@unlink( $temp_file );
+			return $attachment_id;
+		}
+
+		return array(
+			'id'   => $attachment_id,
+			'url'  => wp_get_attachment_url( $attachment_id ),
+			'type' => 'image',
+		);
+	}
+
+	/**
+	 * Import a generated remote image URL into the Media Library.
+	 *
+	 * @param string $url      Remote image URL.
+	 * @param string $filename Desired filename.
+	 * @return array|WP_Error
+	 */
+	private function import_remote_image_asset( $url, $filename ) {
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$temp_file = download_url( esc_url_raw( $url ), 30 );
+
+		if ( is_wp_error( $temp_file ) ) {
+			return $temp_file;
+		}
+
+		$file_array = array(
+			'name'     => sanitize_file_name( $filename ),
+			'tmp_name' => $temp_file,
 		);
 
 		$attachment_id = media_handle_sideload( $file_array, 0 );

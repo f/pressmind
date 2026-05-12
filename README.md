@@ -68,6 +68,7 @@ Open Pressmind in a fresh browser-based WordPress site:
 </p>
 
 The blueprint enables networking, logs into wp-admin, installs Pressmind from GitHub, activates the plugin, and opens a new post.
+That post is imported from [`examples/pressmind-demo-post.html`](examples/pressmind-demo-post.html) and includes prefilled Pressmind prompt placeholders. They are not sent to AI until you click **Generate Blocks**.
 
 ## Quick Start
 
@@ -148,6 +149,7 @@ Main files:
 - [`includes/class-ai-provider.php`](includes/class-ai-provider.php): AI and image provider calls.
 - [`includes/class-rest-controller.php`](includes/class-rest-controller.php): REST generation and streaming.
 - [`src/ai-prompt-block/`](src/ai-prompt-block): Block editor UI.
+- [`examples/pressmind-demo-post.html`](examples/pressmind-demo-post.html): Playground demo post content.
 
 ## Status
 
