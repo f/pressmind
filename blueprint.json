@@ -19,7 +19,7 @@
 			"step": "installPlugin",
 			"pluginData": {
 				"resource": "git:directory",
-				"url": "https://github.com/YOUR_GITHUB_USERNAME/pressmind",
+				"url": "https://github.com/f/pressmind",
 				"path": "/",
 				"ref": "main"
 			},

@@ -11,8 +11,12 @@
 </p>
 
 <p align="center">
-	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/pressmind/main/blueprint.json">Try in WordPress Playground</a>
-	 ·
+	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint.json">
+		<img alt="Try Pressmind in WordPress Playground" src="https://img.shields.io/badge/Try%20in-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+	</a>
+</p>
+
+<p align="center">
 	<a href="#quick-start">Quick start</a>
 	 ·
 	<a href="#security-model">Security model</a>
@@ -55,11 +59,13 @@ This builds the block assets and starts a local WordPress Playground instance wi
 
 This repository includes [`blueprint.json`](blueprint.json) for WordPress Playground.
 
-After publishing the repo, update the placeholder GitHub owner in [`blueprint.json`](blueprint.json), then use:
+Open Pressmind in a fresh browser-based WordPress site:
 
-```text
-https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/pressmind/main/blueprint.json
-```
+<p>
+	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint.json">
+		<img alt="Launch Playground" src="https://img.shields.io/badge/Launch-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+	</a>
+</p>
 
 The blueprint enables networking, logs into wp-admin, installs Pressmind from GitHub, activates the plugin, and opens a new post.
 
