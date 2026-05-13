@@ -34,6 +34,10 @@ Pressmind is an experimental WordPress plugin that turns natural language prompt
 
 It can create static layouts, rich HTML, SVG diagrams, org charts, tables, callouts, sandboxed interactive widgets, and Media Library-backed AI images.
 
+<p align="center">
+	<img src="assets/example.png" alt="Pressmind running in the WordPress block editor" width="920" />
+</p>
+
 ## Highlights
 
 - **Context-aware generation**: Sends bounded post context so generated blocks match the current article.
@@ -85,6 +89,8 @@ Go to `Settings > Pressmind` and configure:
 - Chat completions endpoint
 - Text model
 - Optional image generation model and size
+
+On WordPress 7.0+, Pressmind can use the OpenAI key from the new WordPress Connectors API when it is configured in `Settings > Connectors`. If the connector is unavailable or has no key, Pressmind falls back to its own API key field.
 
 ## Example Prompts
 

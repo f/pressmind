@@ -119,10 +119,48 @@ class Pressmind_Settings {
 	 * @return array
 	 */
 	public function get_options() {
-		return wp_parse_args(
+		$options = wp_parse_args(
 			get_option( self::OPTION_NAME, array() ),
 			$this->get_defaults()
 		);
+
+		$connector_api_key = $this->get_openai_connector_api_key();
+
+		if ( $connector_api_key ) {
+			$options['api_key']        = $connector_api_key;
+			$options['api_key_source'] = 'connector';
+		} elseif ( ! empty( $options['api_key'] ) ) {
+			$options['api_key_source'] = 'pressmind';
+		} else {
+			$options['api_key_source'] = '';
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Check whether WordPress exposes the Connectors API.
+	 *
+	 * @return bool
+	 */
+	private function has_connectors_api() {
+		return function_exists( 'wp_is_connector_registered' ) && function_exists( 'wp_get_connector' );
+	}
+
+	/**
+	 * Get the OpenAI API key from WordPress 7.0 Connectors API when available.
+	 *
+	 * @return string
+	 */
+	private function get_openai_connector_api_key() {
+		if ( ! $this->has_connectors_api() || ! wp_is_connector_registered( 'openai' ) ) {
+			return '';
+		}
+
+		$connector    = wp_get_connector( 'openai' );
+		$setting_name = $connector['authentication']['setting_name'] ?? 'connectors_ai_openai_api_key';
+
+		return sanitize_text_field( (string) get_option( $setting_name, '' ) );
 	}
 
 	/**
@@ -164,7 +202,11 @@ class Pressmind_Settings {
 	 * Render section description.
 	 */
 	public function render_provider_section() {
-		echo '<p>' . esc_html__( 'Configure an OpenAI-compatible chat completions endpoint. API keys are saved in plugin settings, used only server-side, and never sent to the block editor.', 'pressmind' ) . '</p>';
+		echo '<p>' . esc_html__( 'Configure an OpenAI-compatible chat completions endpoint. API keys are used only server-side and never sent to the block editor.', 'pressmind' ) . '</p>';
+
+		if ( $this->has_connectors_api() && wp_is_connector_registered( 'openai' ) ) {
+			echo '<p>' . esc_html__( 'WordPress Connectors API is available. If an OpenAI key is configured in Settings > Connectors, Pressmind will use it before falling back to the key below.', 'pressmind' ) . '</p>';
+		}
 	}
 
 	/**
@@ -176,8 +218,12 @@ class Pressmind_Settings {
 		printf(
 			'<input type="password" name="%1$s[api_key]" value="%2$s" class="regular-text" autocomplete="off" />',
 			esc_attr( self::OPTION_NAME ),
-			esc_attr( $options['api_key'] )
+			esc_attr( 'connector' === $options['api_key_source'] ? '' : $options['api_key'] )
 		);
+
+		if ( 'connector' === $options['api_key_source'] ) {
+			echo '<p class="description">' . esc_html__( 'Using the OpenAI key from Settings > Connectors. This field remains available as a fallback for older WordPress versions or sites without a configured connector.', 'pressmind' ) . '</p>';
+		}
 	}
 
 	/**
