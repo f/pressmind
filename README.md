@@ -60,7 +60,13 @@ npm install
 npm run playground
 ```
 
-This builds the block assets and starts a local WordPress Playground instance with auto-login.
+This builds the block assets and starts a local WordPress Playground instance with auto-login on the latest stable WordPress build.
+
+To test against WordPress nightly for upcoming WordPress 7.0 APIs such as Connectors:
+
+```bash
+npm run playground:nightly
+```
 
 ### Hosted Playground Blueprint
 
@@ -95,12 +101,11 @@ Then install the plugin in WordPress and activate **Pressmind**.
 Go to `Settings > Pressmind` and configure:
 
 - Credentials source: WordPress Connector or Pressmind custom settings
-- API key
-- Chat completions endpoint
+- Connector selection or custom API key/endpoint fields
 - Text model
 - Optional image generation model and size
 
-On WordPress 7.0+, Pressmind can use API keys from the new WordPress Connectors API. If multiple API-key AI connectors are registered, choose one in `Settings > Pressmind`. Connector mode provides the credential only; Pressmind still uses its endpoint and model fields. Choose Custom settings to use Pressmind’s own API key field instead.
+On WordPress 7.0+, Pressmind can use API keys from the new WordPress Connectors API. If multiple API-key AI connectors are registered, choose one in `Settings > Pressmind`. Connector mode hides the custom API key and endpoint controls, but still lets you choose the model name. Choose Custom settings to show and use Pressmind’s own API key and endpoint fields instead.
 
 ## Example Prompts
 

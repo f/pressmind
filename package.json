@@ -7,6 +7,7 @@
 		"build": "wp-scripts build src/ai-prompt-block/index.js --output-path=build/ai-prompt-block && cp src/ai-prompt-block/block.json build/ai-prompt-block/block.json",
 		"start": "wp-scripts start src/ai-prompt-block/index.js --output-path=build/ai-prompt-block",
 		"playground": "npm run build && npx @wp-playground/cli start --login",
+		"playground:nightly": "npm run build && npx @wp-playground/cli start --login --wp=nightly",
 		"vectorize:logo": "node scripts/vectorize-logo.cjs",
 		"lint:js": "wp-scripts lint-js src",
 		"format": "wp-scripts format"

@@ -46,7 +46,7 @@ class Pressmind_Settings {
 
 		add_settings_field(
 			'credential_source',
-			__( 'Credentials Source', 'pressmind' ),
+			__( 'API Credentials', 'pressmind' ),
 			array( $this, 'render_credential_source_field' ),
 			'pressmind_settings',
 			'pressmind_provider'
@@ -57,7 +57,8 @@ class Pressmind_Settings {
 			__( 'Connector', 'pressmind' ),
 			array( $this, 'render_connector_id_field' ),
 			'pressmind_settings',
-			'pressmind_provider'
+			'pressmind_provider',
+			array( 'class' => 'pressmind-connector-field' )
 		);
 
 		add_settings_field(
@@ -65,7 +66,8 @@ class Pressmind_Settings {
 			__( 'API Key', 'pressmind' ),
 			array( $this, 'render_api_key_field' ),
 			'pressmind_settings',
-			'pressmind_provider'
+			'pressmind_provider',
+			array( 'class' => 'pressmind-custom-credential-field' )
 		);
 
 		add_settings_field(
@@ -73,7 +75,8 @@ class Pressmind_Settings {
 			__( 'API Endpoint', 'pressmind' ),
 			array( $this, 'render_api_endpoint_field' ),
 			'pressmind_settings',
-			'pressmind_provider'
+			'pressmind_provider',
+			array( 'class' => 'pressmind-custom-credential-field' )
 		);
 
 		add_settings_field(
@@ -143,6 +146,10 @@ class Pressmind_Settings {
 		$options['credential_source'] = 'connector' === $options['credential_source'] ? 'connector' : 'custom';
 		$options['connector_id']       = sanitize_key( $options['connector_id'] );
 
+		if ( ! $this->has_connectors_api() ) {
+			$options['credential_source'] = 'custom';
+		}
+
 		if ( 'connector' === $options['credential_source'] ) {
 			$connector_api_key = $this->get_connector_api_key( $options['connector_id'] );
 
@@ -164,6 +171,20 @@ class Pressmind_Settings {
 	 */
 	private function has_connectors_api() {
 		return function_exists( 'wp_is_connector_registered' ) && function_exists( 'wp_get_connector' );
+	}
+
+	/**
+	 * Get the source selected in saved settings without resolving credentials.
+	 *
+	 * @return string
+	 */
+	private function get_configured_credential_source() {
+		$options = wp_parse_args(
+			get_option( self::OPTION_NAME, array() ),
+			$this->get_defaults()
+		);
+
+		return 'connector' === $options['credential_source'] ? 'connector' : 'custom';
 	}
 
 	/**
@@ -216,12 +237,16 @@ class Pressmind_Settings {
 	 * @return array
 	 */
 	public function sanitize_options( $options ) {
-		$options = is_array( $options ) ? $options : array();
+		$options  = is_array( $options ) ? $options : array();
+		$existing = wp_parse_args(
+			get_option( self::OPTION_NAME, array() ),
+			$this->get_defaults()
+		);
 
 		return array(
 			'credential_source'        => isset( $options['credential_source'] ) && 'connector' === $options['credential_source'] ? 'connector' : 'custom',
-			'connector_id'             => isset( $options['connector_id'] ) ? sanitize_key( $options['connector_id'] ) : '',
-			'api_key'                 => isset( $options['api_key'] ) ? sanitize_text_field( $options['api_key'] ) : '',
+			'connector_id'             => isset( $options['connector_id'] ) ? sanitize_key( $options['connector_id'] ) : sanitize_key( $existing['connector_id'] ),
+			'api_key'                 => isset( $options['api_key'] ) ? sanitize_text_field( $options['api_key'] ) : sanitize_text_field( $existing['api_key'] ),
 			'api_endpoint'            => isset( $options['api_endpoint'] ) ? esc_url_raw( $options['api_endpoint'] ) : '',
 			'model'                   => isset( $options['model'] ) ? sanitize_text_field( $options['model'] ) : '',
 			'enable_image_generation' => ! empty( $options['enable_image_generation'] ) ? 1 : 0,
@@ -262,18 +287,28 @@ class Pressmind_Settings {
 		$options = $this->get_options();
 
 		printf(
-			'<label><input type="radio" name="%1$s[credential_source]" value="custom" %2$s /> %3$s</label><br />',
-			esc_attr( self::OPTION_NAME ),
-			checked( 'custom', $options['credential_source'], false ),
-			esc_html__( 'Use Pressmind custom settings', 'pressmind' )
+			'<select id="pressmind-credential-source" name="%1$s[credential_source]">',
+			esc_attr( self::OPTION_NAME )
 		);
 
 		printf(
-			'<label><input type="radio" name="%1$s[credential_source]" value="connector" %2$s %3$s /> %4$s</label>',
-			esc_attr( self::OPTION_NAME ),
-			checked( 'connector', $options['credential_source'], false ),
+			'<option value="custom" %1$s>%2$s</option>',
+			selected( 'custom', $options['credential_source'], false ),
+			esc_html__( 'Custom API key', 'pressmind' )
+		);
+
+		printf(
+			'<option value="connector" %1$s %2$s>%3$s</option>',
+			selected( 'connector', $options['credential_source'], false ),
 			disabled( ! $this->has_connectors_api(), true, false ),
-			esc_html__( 'Use WordPress Connectors API', 'pressmind' )
+			esc_html__( 'WordPress Connector', 'pressmind' )
+		);
+
+		echo '</select>';
+
+		printf(
+			'<p class="description">%s</p>',
+			esc_html__( 'Switching this setting shows only the relevant credential controls. Save changes to persist it.', 'pressmind' )
 		);
 
 		if ( ! $this->has_connectors_api() ) {
@@ -308,7 +343,7 @@ class Pressmind_Settings {
 		}
 
 		echo '</select>';
-		echo '<p class="description">' . esc_html__( 'The selected connector provides the API key only. Pressmind still uses the endpoint and model settings below.', 'pressmind' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'The selected connector provides the API key. Choose the model name below.', 'pressmind' ) . '</p>';
 	}
 
 	/**
@@ -426,6 +461,34 @@ class Pressmind_Settings {
 				?>
 			</form>
 		</div>
+		<script>
+			( function () {
+				const source = document.getElementById( 'pressmind-credential-source' );
+
+				if ( ! source ) {
+					return;
+				}
+
+				const toggleRows = () => {
+					const isConnector = source.value === 'connector';
+
+					document
+						.querySelectorAll( '.pressmind-connector-field' )
+						.forEach( ( row ) => {
+							row.style.display = isConnector ? '' : 'none';
+						} );
+
+					document
+						.querySelectorAll( '.pressmind-custom-credential-field' )
+						.forEach( ( row ) => {
+							row.style.display = isConnector ? 'none' : '';
+						} );
+				};
+
+				source.addEventListener( 'change', toggleRows );
+				toggleRows();
+			}() );
+		</script>
 		<?php
 	}
 }
