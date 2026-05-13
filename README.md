@@ -38,7 +38,9 @@ Pressmind is an experimental WordPress plugin that turns natural language prompt
 It can create static layouts, rich HTML, SVG diagrams, org charts, tables, callouts, sandboxed interactive widgets, and Media Library-backed AI images.
 
 <p align="center">
-	<video src="assets/pressmind-demo.mp4" controls width="920"></video>
+	<video src="https://github.com/f/pressmind/raw/refs/heads/main/assets/pressmind-demo.mp4" controls width="920"></video>
+	<br />
+	<a href="https://github.com/f/pressmind/raw/refs/heads/main/assets/pressmind-demo.mp4">Watch the demo video</a>
 </p>
 
 ## Highlights
