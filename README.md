@@ -12,7 +12,10 @@
 
 <p align="center">
 	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint.json">
-		<img alt="Try Pressmind in WordPress Playground" src="https://img.shields.io/badge/Try%20in-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+		<img alt="Try Pressmind stable in WordPress Playground" src="https://img.shields.io/badge/Try%20Stable-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+	</a>
+	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint-nightly.json">
+		<img alt="Try Pressmind nightly in WordPress Playground" src="https://img.shields.io/badge/Try%20Nightly-WordPress%20Playground-111827?style=for-the-badge&logo=wordpress&logoColor=white" />
 	</a>
 </p>
 
@@ -61,17 +64,23 @@ This builds the block assets and starts a local WordPress Playground instance wi
 
 ### Hosted Playground Blueprint
 
-This repository includes [`blueprint.json`](blueprint.json) for WordPress Playground.
+This repository includes two WordPress Playground blueprints:
+
+- [`blueprint.json`](blueprint.json): stable demo using the latest released WordPress build.
+- [`blueprint-nightly.json`](blueprint-nightly.json): nightly demo for testing upcoming WordPress 7.0 APIs such as Connectors.
 
 Open Pressmind in a fresh browser-based WordPress site:
 
 <p>
 	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint.json">
-		<img alt="Launch Playground" src="https://img.shields.io/badge/Launch-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+		<img alt="Launch stable Playground" src="https://img.shields.io/badge/Launch%20Stable-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+	</a>
+	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint-nightly.json">
+		<img alt="Launch nightly Playground" src="https://img.shields.io/badge/Launch%20Nightly-WordPress%20Playground-111827?style=for-the-badge&logo=wordpress&logoColor=white" />
 	</a>
 </p>
 
-The blueprint enables networking, requests WordPress `nightly` so upcoming WordPress 7.0 APIs can be tested before a numbered `7.0` Playground build exists, logs into wp-admin, installs Pressmind from GitHub, activates the plugin, and opens a new post.
+Both blueprints enable networking, log into wp-admin, install Pressmind from GitHub, activate the plugin, and open a new post.
 That post is imported from [`examples/pressmind-demo-post.html`](examples/pressmind-demo-post.html) and includes prefilled Pressmind prompt placeholders. They are not sent to AI until you click **Generate Blocks**.
 
 ## Quick Start
