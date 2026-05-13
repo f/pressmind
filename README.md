@@ -71,7 +71,7 @@ Open Pressmind in a fresh browser-based WordPress site:
 	</a>
 </p>
 
-The blueprint enables networking, logs into wp-admin, installs Pressmind from GitHub, activates the plugin, and opens a new post.
+The blueprint enables networking, requests WordPress `nightly` so upcoming WordPress 7.0 APIs can be tested before a numbered `7.0` Playground build exists, logs into wp-admin, installs Pressmind from GitHub, activates the plugin, and opens a new post.
 That post is imported from [`examples/pressmind-demo-post.html`](examples/pressmind-demo-post.html) and includes prefilled Pressmind prompt placeholders. They are not sent to AI until you click **Generate Blocks**.
 
 ## Quick Start
