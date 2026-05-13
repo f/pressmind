@@ -45,6 +45,22 @@ class Pressmind_Settings {
 		);
 
 		add_settings_field(
+			'credential_source',
+			__( 'Credentials Source', 'pressmind' ),
+			array( $this, 'render_credential_source_field' ),
+			'pressmind_settings',
+			'pressmind_provider'
+		);
+
+		add_settings_field(
+			'connector_id',
+			__( 'Connector', 'pressmind' ),
+			array( $this, 'render_connector_id_field' ),
+			'pressmind_settings',
+			'pressmind_provider'
+		);
+
+		add_settings_field(
 			'api_key',
 			__( 'API Key', 'pressmind' ),
 			array( $this, 'render_api_key_field' ),
@@ -124,11 +140,14 @@ class Pressmind_Settings {
 			$this->get_defaults()
 		);
 
-		$connector_api_key = $this->get_openai_connector_api_key();
+		$options['credential_source'] = 'connector' === $options['credential_source'] ? 'connector' : 'custom';
+		$options['connector_id']       = sanitize_key( $options['connector_id'] );
 
-		if ( $connector_api_key ) {
+		if ( 'connector' === $options['credential_source'] ) {
+			$connector_api_key = $this->get_connector_api_key( $options['connector_id'] );
+
 			$options['api_key']        = $connector_api_key;
-			$options['api_key_source'] = 'connector';
+			$options['api_key_source'] = $connector_api_key ? 'connector' : 'connector_missing';
 		} elseif ( ! empty( $options['api_key'] ) ) {
 			$options['api_key_source'] = 'pressmind';
 		} else {
@@ -148,19 +167,46 @@ class Pressmind_Settings {
 	}
 
 	/**
-	 * Get the OpenAI API key from WordPress 7.0 Connectors API when available.
+	 * Get registered AI connectors.
 	 *
+	 * @return array
+	 */
+	private function get_ai_connectors() {
+		if ( ! $this->has_connectors_api() || ! function_exists( 'wp_get_connectors' ) ) {
+			return array();
+		}
+
+		return array_filter(
+			wp_get_connectors(),
+			function ( $connector ) {
+				return 'ai_provider' === ( $connector['type'] ?? '' ) && 'api_key' === ( $connector['authentication']['method'] ?? '' );
+			}
+		);
+	}
+
+	/**
+	 * Get an API key from a selected WordPress Connector.
+	 *
+	 * @param string $connector_id Connector ID.
 	 * @return string
 	 */
-	private function get_openai_connector_api_key() {
-		if ( ! $this->has_connectors_api() || ! wp_is_connector_registered( 'openai' ) ) {
+	private function get_connector_api_key( $connector_id ) {
+		$connector_id = sanitize_key( $connector_id );
+
+		if ( ! $this->has_connectors_api() || ! $connector_id || ! wp_is_connector_registered( $connector_id ) ) {
 			return '';
 		}
 
-		$connector    = wp_get_connector( 'openai' );
-		$setting_name = $connector['authentication']['setting_name'] ?? 'connectors_ai_openai_api_key';
+		$connector      = wp_get_connector( $connector_id );
+		$auth           = $connector['authentication'] ?? array();
+		$env_var_name   = $auth['env_var_name'] ?? strtoupper( str_replace( '-', '_', $connector_id ) ) . '_API_KEY';
+		$constant_name  = $auth['constant_name'] ?? $env_var_name;
+		$setting_name   = $auth['setting_name'] ?? 'connectors_ai_' . $connector_id . '_api_key';
+		$connector_key  = getenv( $env_var_name );
+		$connector_key  = $connector_key ? $connector_key : ( defined( $constant_name ) ? constant( $constant_name ) : '' );
+		$connector_key  = $connector_key ? $connector_key : get_option( $setting_name, '' );
 
-		return sanitize_text_field( (string) get_option( $setting_name, '' ) );
+		return sanitize_text_field( (string) $connector_key );
 	}
 
 	/**
@@ -173,6 +219,8 @@ class Pressmind_Settings {
 		$options = is_array( $options ) ? $options : array();
 
 		return array(
+			'credential_source'        => isset( $options['credential_source'] ) && 'connector' === $options['credential_source'] ? 'connector' : 'custom',
+			'connector_id'             => isset( $options['connector_id'] ) ? sanitize_key( $options['connector_id'] ) : '',
 			'api_key'                 => isset( $options['api_key'] ) ? sanitize_text_field( $options['api_key'] ) : '',
 			'api_endpoint'            => isset( $options['api_endpoint'] ) ? esc_url_raw( $options['api_endpoint'] ) : '',
 			'model'                   => isset( $options['model'] ) ? sanitize_text_field( $options['model'] ) : '',
@@ -189,6 +237,8 @@ class Pressmind_Settings {
 	 */
 	private function get_defaults() {
 		return array(
+			'credential_source'        => 'custom',
+			'connector_id'             => 'openai',
 			'api_key'                 => '',
 			'api_endpoint'            => 'https://api.openai.com/v1/chat/completions',
 			'model'                   => 'gpt-4.1-mini',
@@ -203,26 +253,84 @@ class Pressmind_Settings {
 	 */
 	public function render_provider_section() {
 		echo '<p>' . esc_html__( 'Configure an OpenAI-compatible chat completions endpoint. API keys are used only server-side and never sent to the block editor.', 'pressmind' ) . '</p>';
+	}
 
-		if ( $this->has_connectors_api() && wp_is_connector_registered( 'openai' ) ) {
-			echo '<p>' . esc_html__( 'WordPress Connectors API is available. If an OpenAI key is configured in Settings > Connectors, Pressmind will use it before falling back to the key below.', 'pressmind' ) . '</p>';
+	/**
+	 * Render credential source controls.
+	 */
+	public function render_credential_source_field() {
+		$options = $this->get_options();
+
+		printf(
+			'<label><input type="radio" name="%1$s[credential_source]" value="custom" %2$s /> %3$s</label><br />',
+			esc_attr( self::OPTION_NAME ),
+			checked( 'custom', $options['credential_source'], false ),
+			esc_html__( 'Use Pressmind custom settings', 'pressmind' )
+		);
+
+		printf(
+			'<label><input type="radio" name="%1$s[credential_source]" value="connector" %2$s %3$s /> %4$s</label>',
+			esc_attr( self::OPTION_NAME ),
+			checked( 'connector', $options['credential_source'], false ),
+			disabled( ! $this->has_connectors_api(), true, false ),
+			esc_html__( 'Use WordPress Connectors API', 'pressmind' )
+		);
+
+		if ( ! $this->has_connectors_api() ) {
+			echo '<p class="description">' . esc_html__( 'Connectors API is not available on this WordPress version. Pressmind will use custom settings.', 'pressmind' ) . '</p>';
 		}
+	}
+
+	/**
+	 * Render connector select field.
+	 */
+	public function render_connector_id_field() {
+		$options    = $this->get_options();
+		$connectors = $this->get_ai_connectors();
+
+		if ( empty( $connectors ) ) {
+			echo '<p class="description">' . esc_html__( 'No API-key AI connectors are currently registered.', 'pressmind' ) . '</p>';
+			return;
+		}
+
+		printf(
+			'<select name="%1$s[connector_id]">',
+			esc_attr( self::OPTION_NAME )
+		);
+
+		foreach ( $connectors as $connector_id => $connector ) {
+			printf(
+				'<option value="%1$s" %2$s>%3$s</option>',
+				esc_attr( $connector_id ),
+				selected( $connector_id, $options['connector_id'], false ),
+				esc_html( $connector['name'] ?? $connector_id )
+			);
+		}
+
+		echo '</select>';
+		echo '<p class="description">' . esc_html__( 'The selected connector provides the API key only. Pressmind still uses the endpoint and model settings below.', 'pressmind' ) . '</p>';
 	}
 
 	/**
 	 * Render API key input.
 	 */
 	public function render_api_key_field() {
-		$options = $this->get_options();
+		$options       = $this->get_options();
+		$saved_options = wp_parse_args(
+			get_option( self::OPTION_NAME, array() ),
+			$this->get_defaults()
+		);
 
 		printf(
 			'<input type="password" name="%1$s[api_key]" value="%2$s" class="regular-text" autocomplete="off" />',
 			esc_attr( self::OPTION_NAME ),
-			esc_attr( 'connector' === $options['api_key_source'] ? '' : $options['api_key'] )
+			esc_attr( $saved_options['api_key'] )
 		);
 
 		if ( 'connector' === $options['api_key_source'] ) {
-			echo '<p class="description">' . esc_html__( 'Using the OpenAI key from Settings > Connectors. This field remains available as a fallback for older WordPress versions or sites without a configured connector.', 'pressmind' ) . '</p>';
+			echo '<p class="description">' . esc_html__( 'Currently using the selected WordPress Connector key. This custom key is saved separately and is only used when Custom settings is selected.', 'pressmind' ) . '</p>';
+		} elseif ( 'connector_missing' === $options['api_key_source'] ) {
+			echo '<p class="description">' . esc_html__( 'The selected connector does not have an available key yet. Configure it in Settings > Connectors or choose Custom settings.', 'pressmind' ) . '</p>';
 		}
 	}
 

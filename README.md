@@ -94,12 +94,13 @@ Then install the plugin in WordPress and activate **Pressmind**.
 
 Go to `Settings > Pressmind` and configure:
 
+- Credentials source: WordPress Connector or Pressmind custom settings
 - API key
 - Chat completions endpoint
 - Text model
 - Optional image generation model and size
 
-On WordPress 7.0+, Pressmind can use the OpenAI key from the new WordPress Connectors API when it is configured in `Settings > Connectors`. If the connector is unavailable or has no key, Pressmind falls back to its own API key field.
+On WordPress 7.0+, Pressmind can use API keys from the new WordPress Connectors API. If multiple API-key AI connectors are registered, choose one in `Settings > Pressmind`. Connector mode provides the credential only; Pressmind still uses its endpoint and model fields. Choose Custom settings to use Pressmind’s own API key field instead.
 
 ## Example Prompts
 
