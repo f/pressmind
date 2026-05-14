@@ -306,8 +306,9 @@ class Pressmind_REST_Controller {
 			return $result;
 		}
 
-		$imported_assets = array();
-		$blocks          = isset( $result['serializedBlocks'] ) ? (string) $result['serializedBlocks'] : '';
+		$imported_assets    = array();
+		$failed_placeholders = array();
+		$blocks             = isset( $result['serializedBlocks'] ) ? (string) $result['serializedBlocks'] : '';
 
 		foreach ( $result['assets'] as $asset ) {
 			if ( ! is_array( $asset ) ) {
@@ -318,6 +319,11 @@ class Pressmind_REST_Controller {
 
 			if ( is_wp_error( $imported ) ) {
 				$result['warnings'][] = $imported->get_error_message();
+
+				if ( ! empty( $asset['placeholder'] ) ) {
+					$failed_placeholders[] = (string) $asset['placeholder'];
+				}
+
 				continue;
 			}
 
@@ -329,10 +335,67 @@ class Pressmind_REST_Controller {
 			$imported_assets[] = $imported;
 		}
 
+		if ( ! empty( $failed_placeholders ) ) {
+			$blocks = $this->strip_blocks_with_placeholders( $blocks, $failed_placeholders );
+		}
+
 		$result['serializedBlocks'] = $this->add_imported_image_ids_to_blocks( $blocks, $imported_assets );
 		$result['assets']           = $imported_assets;
 
 		return $result;
+	}
+
+	/**
+	 * Remove any top-level or nested block that still references a failed asset placeholder.
+	 *
+	 * @param string $serialized_blocks Serialized blocks.
+	 * @param array  $placeholders      Placeholder strings whose asset generation failed.
+	 * @return string
+	 */
+	private function strip_blocks_with_placeholders( $serialized_blocks, array $placeholders ) {
+		if ( '' === trim( (string) $serialized_blocks ) || empty( $placeholders ) ) {
+			return $serialized_blocks;
+		}
+
+		$blocks = parse_blocks( $serialized_blocks );
+		$blocks = $this->filter_blocks_by_placeholders( $blocks, $placeholders );
+
+		return serialize_blocks( $blocks );
+	}
+
+	/**
+	 * Recursively drop blocks whose serialized form contains any failed placeholder.
+	 *
+	 * @param array $blocks       Parsed blocks.
+	 * @param array $placeholders Placeholder strings.
+	 * @return array
+	 */
+	private function filter_blocks_by_placeholders( array $blocks, array $placeholders ) {
+		$kept = array();
+
+		foreach ( $blocks as $block ) {
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$block['innerBlocks'] = $this->filter_blocks_by_placeholders( $block['innerBlocks'], $placeholders );
+			}
+
+			$serialized = serialize_block( $block );
+			$contains   = false;
+
+			foreach ( $placeholders as $placeholder ) {
+				if ( '' !== $placeholder && false !== strpos( $serialized, $placeholder ) ) {
+					$contains = true;
+					break;
+				}
+			}
+
+			if ( $contains ) {
+				continue;
+			}
+
+			$kept[] = $block;
+		}
+
+		return $kept;
 	}
 
 	/**
@@ -462,7 +525,7 @@ class Pressmind_REST_Controller {
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		$temp_file = download_url( $url, 30 );
+		$temp_file = download_url( $url, 90 );
 
 		if ( is_wp_error( $temp_file ) ) {
 			return $temp_file;
@@ -568,7 +631,7 @@ class Pressmind_REST_Controller {
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 
-		$temp_file = download_url( esc_url_raw( $url ), 30 );
+		$temp_file = download_url( esc_url_raw( $url ), 90 );
 
 		if ( is_wp_error( $temp_file ) ) {
 			return $temp_file;
@@ -601,11 +664,33 @@ class Pressmind_REST_Controller {
 	 */
 	private function sanitize_generation_result( array $result ) {
 		$serialized_blocks = isset( $result['serializedBlocks'] ) ? trim( (string) $result['serializedBlocks'] ) : '';
+		$warnings          = isset( $result['warnings'] ) && is_array( $result['warnings'] ) ? array_values( array_filter( array_map( 'strval', $result['warnings'] ) ) ) : array();
 
 		if ( '' === $serialized_blocks ) {
+			if ( ! empty( $warnings ) ) {
+				return new WP_Error(
+					'pressmind_asset_generation_failed',
+					sprintf(
+						/* translators: %s: comma-separated provider warning messages. */
+						__( 'Generation failed: %s', 'pressmind' ),
+						implode( '; ', $warnings )
+					),
+					array( 'status' => 502 )
+				);
+			}
+
+			$summary = isset( $result['summary'] ) ? trim( (string) $result['summary'] ) : '';
+			$detail  = $summary
+				? sprintf(
+					/* translators: %s: model-provided summary. */
+					__( 'AI provider returned a description but no block markup. Model said: "%s". Try a more specific block prompt (e.g. "as a paragraph", "as a core/image block").', 'pressmind' ),
+					$summary
+				)
+				: __( 'AI provider did not return any block markup.', 'pressmind' );
+
 			return new WP_Error(
 				'pressmind_empty_blocks',
-				__( 'AI provider did not return any block markup.', 'pressmind' ),
+				$detail,
 				array( 'status' => 502 )
 			);
 		}
