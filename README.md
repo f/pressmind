@@ -43,20 +43,6 @@ It can create static layouts, rich HTML, SVG diagrams, org charts, tables, callo
 	<a href="https://github.com/f/pressmind/raw/refs/heads/main/assets/pressmind-demo.mp4">Watch the demo video</a>
 </p>
 
-## Example Output
-
-<p align="center">
-	<img alt="Pressmind example output" src="assets/example-output.gif" width="100%" />
-</p>
-
-<p align="center">
-	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint-mental-health.json">
-		<img alt="Open the mental-health example in WordPress Playground" src="https://img.shields.io/badge/Open%20the%20example-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
-	</a>
-	<br />
-	<sub>Loads <a href="examples/mental-health-interactive-news.html"><code>examples/mental-health-interactive-news.html</code></a> as a Gutenberg post in a fresh Playground site.</sub>
-</p>
-
 ## Highlights
 
 - **Context-aware generation**: Sends bounded post context so generated blocks match the current article.
@@ -195,6 +181,20 @@ Main files:
 ## Status
 
 Pressmind is experimental and intended for exploration, demos, and early feedback. Review generated code and content before publishing.
+
+## Example Output
+
+<p align="center">
+	<img alt="Pressmind example output" src="assets/example-output.gif" width="100%" />
+</p>
+
+<p align="center">
+	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint-mental-health.json">
+		<img alt="Open the mental-health example in WordPress Playground" src="https://img.shields.io/badge/Open%20the%20example-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+	</a>
+	<br />
+	<sub>Loads <a href="examples/mental-health-interactive-news.html"><code>examples/mental-health-interactive-news.html</code></a> as a Gutenberg post in a fresh Playground site.</sub>
+</p>
 
 ## License
 
