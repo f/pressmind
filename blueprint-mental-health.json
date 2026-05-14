@@ -1,0 +1,35 @@
+{
+	"$schema": "https://playground.wordpress.net/blueprint-schema.json",
+	"landingPage": "/wp-admin/post.php?post=1002&action=edit",
+	"preferredVersions": {
+		"php": "8.2",
+		"wp": "latest"
+	},
+	"features": {
+		"networking": true
+	},
+	"login": true,
+	"steps": [
+		{
+			"step": "login",
+			"username": "admin",
+			"password": "password"
+		},
+		{
+			"step": "installPlugin",
+			"pluginData": {
+				"resource": "git:directory",
+				"url": "https://github.com/f/pressmind",
+				"path": "/",
+				"ref": "main"
+			},
+			"options": {
+				"activate": true
+			}
+		},
+		{
+			"step": "runPHP",
+			"code": "<?php require_once '/wordpress/wp-load.php'; $matches = glob( WP_PLUGIN_DIR . '/*/examples/mental-health-interactive-news.html' ); $content_file = $matches ? $matches[0] : ''; if ( $content_file && file_exists( $content_file ) ) { $content = file_get_contents( $content_file ); } else { $response = wp_remote_get( 'https://raw.githubusercontent.com/f/pressmind/main/examples/mental-health-interactive-news.html' ); $content = ! is_wp_error( $response ) ? wp_remote_retrieve_body( $response ) : ''; } if ( ! $content ) { $content = '<!-- wp:paragraph --><p>Pressmind example content could not be loaded.</p><!-- /wp:paragraph -->'; } wp_insert_post( array( 'import_id' => 1002, 'post_title' => 'The City Inside the Mind', 'post_name' => 'the-city-inside-the-mind', 'post_content' => $content, 'post_status' => 'publish', 'post_author' => 1 ) );"
+		}
+	]
+}

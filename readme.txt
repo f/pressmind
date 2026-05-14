@@ -4,7 +4,7 @@ Tags: block-editor, ai, gutenberg, openai, blocks
 Requires at least: 6.5
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.0.3
+Stable tag: 0.0.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -99,6 +99,16 @@ Pressmind is experimental. Review generated content and code before publishing.
 
 == Changelog ==
 
+= 0.0.5 =
+* Added a longform mental-health interactive news example post that mimics Pressmind output (`examples/mental-health-interactive-news.html`).
+* Added a dedicated Playground blueprint (`blueprint-mental-health.json`) that imports the example as a Gutenberg post.
+* Added an animated example output GIF to the README and a one-click Playground link below it.
+
+= 0.0.4 =
+* Improved multi-provider compatibility for AI text generation.
+* Improved reliability of image generation across providers.
+* Internal refactors in the AI provider, REST controller, and settings layers.
+
 = 0.0.3 =
 * Added explicit credential source selection for custom API keys or WordPress Connectors API.
 * Kept model selection available when using a connector.
@@ -120,6 +130,12 @@ Pressmind is experimental. Review generated content and code before publishing.
 * Added optional image generation.
 
 == Upgrade Notice ==
+
+= 0.0.5 =
+Adds a longform interactive example post, a Playground blueprint that imports it, and an example output GIF in the README.
+
+= 0.0.4 =
+Improves multi-provider compatibility and image generation reliability.
 
 = 0.0.3 =
 Adds explicit credential source selection and improves support for WordPress Connectors API.

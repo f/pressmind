@@ -43,6 +43,20 @@ It can create static layouts, rich HTML, SVG diagrams, org charts, tables, callo
 	<a href="https://github.com/f/pressmind/raw/refs/heads/main/assets/pressmind-demo.mp4">Watch the demo video</a>
 </p>
 
+## Example Output
+
+<p align="center">
+	<img alt="Pressmind example output" src="assets/example-output.gif" width="100%" />
+</p>
+
+<p align="center">
+	<a href="https://playground.wordpress.net/?blueprint-url=https://raw.githubusercontent.com/f/pressmind/main/blueprint-mental-health.json">
+		<img alt="Open the mental-health example in WordPress Playground" src="https://img.shields.io/badge/Open%20the%20example-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
+	</a>
+	<br />
+	<sub>Loads <a href="examples/mental-health-interactive-news.html"><code>examples/mental-health-interactive-news.html</code></a> as a Gutenberg post in a fresh Playground site.</sub>
+</p>
+
 ## Highlights
 
 - **Context-aware generation**: Sends bounded post context so generated blocks match the current article.
@@ -76,6 +90,7 @@ This repository includes two WordPress Playground blueprints:
 
 - [`blueprint.json`](blueprint.json): stable demo using the latest released WordPress build.
 - [`blueprint-nightly.json`](blueprint-nightly.json): nightly demo for testing upcoming WordPress 7.0 APIs such as Connectors.
+- [`blueprint-mental-health.json`](blueprint-mental-health.json): opens the [mental-health interactive news example](examples/mental-health-interactive-news.html) as a Gutenberg post.
 
 Open Pressmind in a fresh browser-based WordPress site:
 
@@ -90,6 +105,8 @@ Open Pressmind in a fresh browser-based WordPress site:
 
 Both blueprints enable networking, log into wp-admin, install Pressmind from GitHub, activate the plugin, and open a new post.
 That post is imported from [`examples/pressmind-demo-post.html`](examples/pressmind-demo-post.html) and includes prefilled Pressmind prompt placeholders. They are not sent to AI until you click **Generate Blocks**.
+
+For a fully generated longform example, see [`examples/mental-health-interactive-news.html`](examples/mental-health-interactive-news.html). It mimics Pressmind output for an interactive mental-health news feature with custom HTML, inline SVG, sandboxed charts, a playable breathing exercise, and resource guidance.
 
 ## Quick Start
 
@@ -173,6 +190,7 @@ Main files:
 - [`includes/class-rest-controller.php`](includes/class-rest-controller.php): REST generation and streaming.
 - [`src/ai-prompt-block/`](src/ai-prompt-block): Block editor UI.
 - [`examples/pressmind-demo-post.html`](examples/pressmind-demo-post.html): Playground demo post content.
+- [`examples/mental-health-interactive-news.html`](examples/mental-health-interactive-news.html): Full generated article example with static visuals and sandboxed interactions.
 
 ## Status
 

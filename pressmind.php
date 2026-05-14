@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Pressmind
  * Description: Generate Gutenberg-compatible blocks from prompts and current post context.
- * Version: 0.0.3
+ * Version: 0.0.5
  * Author: Pressmind
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'PRESSMIND_VERSION', '0.0.3' );
+define( 'PRESSMIND_VERSION', '0.0.5' );
 define( 'PRESSMIND_PLUGIN_FILE', __FILE__ );
 define( 'PRESSMIND_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PRESSMIND_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
