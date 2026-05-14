@@ -47,6 +47,26 @@ class Pressmind_AI_Provider {
 			);
 		}
 
+		$payload = array(
+			'model'    => $options['model'],
+			'messages' => array(
+				array(
+					'role'    => 'system',
+					'content' => $this->get_system_prompt(),
+				),
+				array(
+					'role'    => 'user',
+					'content' => $this->get_user_prompt( $prompt, $context ),
+				),
+			),
+		);
+
+		$response_format = $this->build_response_format( $options );
+
+		if ( null !== $response_format ) {
+			$payload['response_format'] = $response_format;
+		}
+
 		$response = wp_remote_post(
 			$options['api_endpoint'],
 			array(
@@ -55,22 +75,7 @@ class Pressmind_AI_Provider {
 					'Authorization' => 'Bearer ' . $options['api_key'],
 					'Content-Type'  => 'application/json',
 				),
-				'body'    => wp_json_encode(
-					array(
-						'model'           => $options['model'],
-						'response_format' => array( 'type' => 'json_object' ),
-						'messages'        => array(
-							array(
-								'role'    => 'system',
-								'content' => $this->get_system_prompt(),
-							),
-							array(
-								'role'    => 'user',
-								'content' => $this->get_user_prompt( $prompt, $context ),
-							),
-						),
-					)
-				),
+				'body'    => wp_json_encode( $payload ),
 			)
 		);
 
@@ -131,11 +136,11 @@ class Pressmind_AI_Provider {
 		$content = '';
 		$error   = null;
 		$pending = '';
+		$raw     = '';
 		$payload = array(
-			'model'           => $options['model'],
-			'stream'          => true,
-			'response_format' => array( 'type' => 'json_object' ),
-			'messages'        => array(
+			'model'    => $options['model'],
+			'stream'   => true,
+			'messages' => array(
 				array(
 					'role'    => 'system',
 					'content' => $this->get_system_prompt(),
@@ -146,6 +151,12 @@ class Pressmind_AI_Provider {
 				),
 			),
 		);
+
+		$response_format = $this->build_response_format( $options );
+
+		if ( null !== $response_format ) {
+			$payload['response_format'] = $response_format;
+		}
 
 		$curl = curl_init( $options['api_endpoint'] );
 
@@ -160,8 +171,9 @@ class Pressmind_AI_Provider {
 			CURLOPT_RETURNTRANSFER => false,
 			CURLOPT_TIMEOUT        => 90,
 			CURLOPT_BUFFERSIZE     => 128,
-			CURLOPT_WRITEFUNCTION  => function ( $curl_handle, $chunk ) use ( &$content, &$error, &$pending, $on_token ) {
+			CURLOPT_WRITEFUNCTION  => function ( $curl_handle, $chunk ) use ( &$content, &$error, &$pending, &$raw, $on_token ) {
 					$pending .= $chunk;
+					$raw     .= $chunk;
 
 					while ( false !== strpos( $pending, "\n" ) ) {
 						list( $line, $pending ) = explode( "\n", $pending, 2 );
@@ -226,6 +238,21 @@ class Pressmind_AI_Provider {
 		}
 
 		if ( $status_code < 200 || $status_code >= 300 ) {
+			if ( ! $error ) {
+				$decoded_body = json_decode( $raw, true );
+
+				if ( isset( $decoded_body['error']['message'] ) ) {
+					$error = (string) $decoded_body['error']['message'];
+				} elseif ( '' !== trim( $raw ) ) {
+					$error = sprintf(
+						/* translators: 1: HTTP status code, 2: raw response body. */
+						__( 'AI provider returned HTTP %1$d: %2$s', 'pressmind' ),
+						(int) $status_code,
+						$this->truncate( $raw, 500 )
+					);
+				}
+			}
+
 			return new WP_Error(
 				'pressmind_provider_error',
 				$error ? $error : __( 'AI provider streaming request failed.', 'pressmind' ),
@@ -284,30 +311,57 @@ class Pressmind_AI_Provider {
 			);
 		}
 
-		$response = wp_remote_post(
-			'https://api.openai.com/v1/images/generations',
+		if ( ! function_exists( 'curl_init' ) ) {
+			return new WP_Error(
+				'pressmind_missing_curl',
+				__( 'PHP cURL is required for image generation.', 'pressmind' )
+			);
+		}
+
+		$payload = wp_json_encode(
 			array(
-				'timeout' => 90,
-				'headers' => array(
-					'Authorization' => 'Bearer ' . $options['api_key'],
-					'Content-Type'  => 'application/json',
-				),
-				'body'    => wp_json_encode(
-					array(
-						'model'  => $options['image_model'],
-						'prompt' => $prompt,
-						'size'   => $options['image_size'],
-					)
-				),
+				'model'  => $options['image_model'],
+				'prompt' => $prompt,
+				'size'   => $options['image_size'],
 			)
 		);
 
-		if ( is_wp_error( $response ) ) {
-			return $response;
+		$curl         = curl_init( 'https://api.openai.com/v1/images/generations' );
+		$curl_options = array(
+			CURLOPT_POST           => true,
+			CURLOPT_HTTPHEADER     => array(
+				'Authorization: Bearer ' . $options['api_key'],
+				'Content-Type: application/json',
+			),
+			CURLOPT_POSTFIELDS     => $payload,
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_TIMEOUT        => 300,
+			CURLOPT_CONNECTTIMEOUT => 30,
+			CURLOPT_LOW_SPEED_LIMIT => 0,
+			CURLOPT_LOW_SPEED_TIME  => 0,
+		);
+
+		$ca_bundle = $this->get_ca_bundle_path();
+
+		if ( $ca_bundle ) {
+			$curl_options[ CURLOPT_CAINFO ] = $ca_bundle;
 		}
 
-		$status_code = wp_remote_retrieve_response_code( $response );
-		$body        = json_decode( wp_remote_retrieve_body( $response ), true );
+		curl_setopt_array( $curl, $curl_options );
+
+		$raw_body    = curl_exec( $curl );
+		$curl_error  = curl_error( $curl );
+		$status_code = (int) curl_getinfo( $curl, CURLINFO_HTTP_CODE );
+		curl_close( $curl );
+
+		if ( false === $raw_body ) {
+			return new WP_Error(
+				'pressmind_image_transport_error',
+				$curl_error ? $curl_error : __( 'Image generation request failed.', 'pressmind' )
+			);
+		}
+
+		$body = json_decode( (string) $raw_body, true );
 
 		if ( $status_code < 200 || $status_code >= 300 ) {
 			$message = isset( $body['error']['message'] ) ? $body['error']['message'] : __( 'Image generation request failed.', 'pressmind' );
@@ -321,7 +375,7 @@ class Pressmind_AI_Provider {
 		$image_base64 = isset( $body['data'][0]['b64_json'] ) ? $body['data'][0]['b64_json'] : '';
 		$image_url    = isset( $body['data'][0]['url'] ) ? esc_url_raw( $body['data'][0]['url'] ) : '';
 
-		if ( $image_url ) {
+		if ( '' === $image_base64 && $image_url ) {
 			return array(
 				'url' => $image_url,
 			);
@@ -348,6 +402,60 @@ class Pressmind_AI_Provider {
 			'extension' => 'png',
 			'mime_type' => 'image/png',
 		);
+	}
+
+	/**
+	 * Build the response_format payload based on plugin settings.
+	 *
+	 * @param array $options Resolved plugin options.
+	 * @return array|null
+	 */
+	private function build_response_format( array $options ) {
+		$mode = isset( $options['response_format'] ) ? (string) $options['response_format'] : 'json_object';
+
+		if ( 'none' === $mode ) {
+			return null;
+		}
+
+		if ( 'json_schema' === $mode ) {
+			return array(
+				'type'        => 'json_schema',
+				'json_schema' => array(
+					'name'   => 'pressmind_block_output',
+					'strict' => true,
+					'schema' => array(
+						'type'                 => 'object',
+						'additionalProperties' => false,
+						'required'             => array( 'summary', 'serializedBlocks', 'assets', 'warnings' ),
+						'properties'           => array(
+							'summary'          => array( 'type' => 'string' ),
+							'serializedBlocks' => array( 'type' => 'string' ),
+							'assets'           => array(
+								'type'  => 'array',
+								'items' => array(
+									'type'                 => 'object',
+									'additionalProperties' => false,
+									'required'             => array( 'type', 'placeholder', 'filename', 'prompt' ),
+									'properties'           => array(
+										'type'        => array( 'type' => 'string' ),
+										'placeholder' => array( 'type' => 'string' ),
+										'filename'    => array( 'type' => 'string' ),
+										'prompt'      => array( 'type' => 'string' ),
+										'url'         => array( 'type' => 'string' ),
+									),
+								),
+							),
+							'warnings'         => array(
+								'type'  => 'array',
+								'items' => array( 'type' => 'string' ),
+							),
+						),
+					),
+				),
+			);
+		}
+
+		return array( 'type' => 'json_object' );
 	}
 
 	/**

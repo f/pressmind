@@ -87,6 +87,14 @@ class Pressmind_Settings {
 			'pressmind_provider'
 		);
 
+		add_settings_field(
+			'response_format',
+			__( 'Response Format', 'pressmind' ),
+			array( $this, 'render_response_format_field' ),
+			'pressmind_settings',
+			'pressmind_provider'
+		);
+
 		add_settings_section(
 			'pressmind_images',
 			__( 'Image Generation', 'pressmind' ),
@@ -155,6 +163,12 @@ class Pressmind_Settings {
 
 			$options['api_key']        = $connector_api_key;
 			$options['api_key_source'] = $connector_api_key ? 'connector' : 'connector_missing';
+
+			$endpoint_defaults = $this->get_connector_endpoint_defaults();
+
+			if ( isset( $endpoint_defaults[ $options['connector_id'] ] ) ) {
+				$options['api_endpoint'] = $endpoint_defaults[ $options['connector_id'] ];
+			}
 		} elseif ( ! empty( $options['api_key'] ) ) {
 			$options['api_key_source'] = 'pressmind';
 		} else {
@@ -185,6 +199,22 @@ class Pressmind_Settings {
 		);
 
 		return 'connector' === $options['credential_source'] ? 'connector' : 'custom';
+	}
+
+	/**
+	 * Default chat-completions endpoint per AI connector.
+	 *
+	 * Used by the settings page JS so switching the connector auto-fills the
+	 * endpoint with one that matches the chosen provider.
+	 *
+	 * @return array
+	 */
+	private function get_connector_endpoint_defaults() {
+		return array(
+			'openai'    => 'https://api.openai.com/v1/chat/completions',
+			'anthropic' => 'https://api.anthropic.com/v1/chat/completions',
+			'google'    => 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+		);
 	}
 
 	/**
@@ -243,12 +273,19 @@ class Pressmind_Settings {
 			$this->get_defaults()
 		);
 
+		$response_format = isset( $options['response_format'] ) ? (string) $options['response_format'] : $existing['response_format'];
+
+		if ( ! in_array( $response_format, array( 'none', 'json_object', 'json_schema' ), true ) ) {
+			$response_format = 'json_object';
+		}
+
 		return array(
 			'credential_source'        => isset( $options['credential_source'] ) && 'connector' === $options['credential_source'] ? 'connector' : 'custom',
 			'connector_id'             => isset( $options['connector_id'] ) ? sanitize_key( $options['connector_id'] ) : sanitize_key( $existing['connector_id'] ),
 			'api_key'                 => isset( $options['api_key'] ) ? sanitize_text_field( $options['api_key'] ) : sanitize_text_field( $existing['api_key'] ),
 			'api_endpoint'            => isset( $options['api_endpoint'] ) ? esc_url_raw( $options['api_endpoint'] ) : '',
 			'model'                   => isset( $options['model'] ) ? sanitize_text_field( $options['model'] ) : '',
+			'response_format'         => $response_format,
 			'enable_image_generation' => ! empty( $options['enable_image_generation'] ) ? 1 : 0,
 			'image_model'             => isset( $options['image_model'] ) ? sanitize_text_field( $options['image_model'] ) : '',
 			'image_size'              => isset( $options['image_size'] ) ? sanitize_text_field( $options['image_size'] ) : '',
@@ -267,8 +304,9 @@ class Pressmind_Settings {
 			'api_key'                 => '',
 			'api_endpoint'            => 'https://api.openai.com/v1/chat/completions',
 			'model'                   => 'gpt-4.1-mini',
+			'response_format'         => 'json_object',
 			'enable_image_generation' => 0,
-			'image_model'             => 'gpt-image-2',
+			'image_model'             => 'gpt-image-1',
 			'image_size'              => '1024x1024',
 		);
 	}
@@ -328,15 +366,20 @@ class Pressmind_Settings {
 			return;
 		}
 
+		$endpoint_defaults = $this->get_connector_endpoint_defaults();
+
 		printf(
-			'<select name="%1$s[connector_id]">',
+			'<select id="pressmind-connector-id" name="%1$s[connector_id]">',
 			esc_attr( self::OPTION_NAME )
 		);
 
 		foreach ( $connectors as $connector_id => $connector ) {
+			$endpoint = isset( $endpoint_defaults[ $connector_id ] ) ? $endpoint_defaults[ $connector_id ] : '';
+
 			printf(
-				'<option value="%1$s" %2$s>%3$s</option>',
+				'<option value="%1$s" data-endpoint="%2$s" %3$s>%4$s</option>',
 				esc_attr( $connector_id ),
+				esc_attr( $endpoint ),
 				selected( $connector_id, $options['connector_id'], false ),
 				esc_html( $connector['name'] ?? $connector_id )
 			);
@@ -344,6 +387,16 @@ class Pressmind_Settings {
 
 		echo '</select>';
 		echo '<p class="description">' . esc_html__( 'The selected connector provides the API key. Choose the model name below.', 'pressmind' ) . '</p>';
+
+		$current_endpoint = $endpoint_defaults[ $options['connector_id'] ] ?? '';
+
+		if ( $current_endpoint ) {
+			printf(
+				'<p class="description">%s <code>%s</code></p>',
+				esc_html__( 'Requests will be sent to:', 'pressmind' ),
+				esc_html( $current_endpoint )
+			);
+		}
 	}
 
 	/**
@@ -376,7 +429,7 @@ class Pressmind_Settings {
 		$options = $this->get_options();
 
 		printf(
-			'<input type="url" name="%1$s[api_endpoint]" value="%2$s" class="regular-text" />',
+			'<input type="url" id="pressmind-api-endpoint" name="%1$s[api_endpoint]" value="%2$s" class="regular-text" />',
 			esc_attr( self::OPTION_NAME ),
 			esc_url( $options['api_endpoint'] )
 		);
@@ -393,6 +446,33 @@ class Pressmind_Settings {
 			esc_attr( self::OPTION_NAME ),
 			esc_attr( $options['model'] )
 		);
+	}
+
+	/**
+	 * Render response_format select.
+	 */
+	public function render_response_format_field() {
+		$options  = $this->get_options();
+		$current  = $options['response_format'];
+		$choices  = array(
+			'none'        => __( 'None — rely on the system prompt to enforce JSON', 'pressmind' ),
+			'json_object' => __( 'json_object — OpenAI / Gemini compat', 'pressmind' ),
+			'json_schema' => __( 'json_schema — Anthropic compat, strict schema', 'pressmind' ),
+		);
+
+		printf( '<select name="%1$s[response_format]">', esc_attr( self::OPTION_NAME ) );
+
+		foreach ( $choices as $value => $label ) {
+			printf(
+				'<option value="%1$s" %2$s>%3$s</option>',
+				esc_attr( $value ),
+				selected( $current, $value, false ),
+				esc_html( $label )
+			);
+		}
+
+		echo '</select>';
+		echo '<p class="description">' . esc_html__( 'OpenAI accepts json_object. Anthropic OpenAI-compat requires json_schema. Pick None if the provider rejects both.', 'pressmind' ) . '</p>';
 	}
 
 	/**
@@ -485,7 +565,28 @@ class Pressmind_Settings {
 						} );
 				};
 
+				const connector = document.getElementById( 'pressmind-connector-id' );
+				const endpoint = document.getElementById( 'pressmind-api-endpoint' );
+
+				const syncEndpointToConnector = () => {
+					if ( ! connector || ! endpoint || source.value !== 'connector' ) {
+						return;
+					}
+
+					const option = connector.options[ connector.selectedIndex ];
+					const next = option ? option.getAttribute( 'data-endpoint' ) : '';
+
+					if ( next ) {
+						endpoint.value = next;
+					}
+				};
+
 				source.addEventListener( 'change', toggleRows );
+
+				if ( connector ) {
+					connector.addEventListener( 'change', syncEndpointToConnector );
+				}
+
 				toggleRows();
 			}() );
 		</script>
