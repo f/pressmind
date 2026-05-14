@@ -4,6 +4,8 @@
  * Description: Generate Gutenberg-compatible blocks from prompts and current post context.
  * Version: 0.0.3
  * Author: Pressmind
+ * License: GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: pressmind
  *
  * @package Pressmind
