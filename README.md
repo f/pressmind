@@ -37,6 +37,8 @@ Pressmind is an experimental WordPress plugin that turns natural language prompt
 
 It can create static layouts, rich HTML, SVG diagrams, org charts, tables, callouts, sandboxed interactive widgets, and Media Library-backed AI images.
 
+The bigger goal is to make **New York Times-style interactive posts** approachable inside ordinary WordPress. Visual explainers, animated SVG diagrams, scrollytelling sections, and small playable widgets that newsrooms usually hand-build per article can be composed uniquely per post in the Gutenberg editor with AI support, instead of from a fixed template.
+
 <p align="center">
 	<video src="https://github.com/user-attachments/assets/911b3718-3716-42cb-b5ca-8955757431ea" controls width="100%"></video>
 	<br />
@@ -193,7 +195,7 @@ Pressmind is experimental and intended for exploration, demos, and early feedbac
 		<img alt="Open the mental-health example in WordPress Playground" src="https://img.shields.io/badge/Open%20the%20example-WordPress%20Playground-3858E9?style=for-the-badge&logo=wordpress&logoColor=white" />
 	</a>
 	<br />
-	<sub>Loads <a href="examples/mental-health-interactive-news.html"><code>examples/mental-health-interactive-news.html</code></a> as a Gutenberg post in a fresh Playground site.</sub>
+	<sub>A New York Times-style interactive feature, uniquely composed inside the Gutenberg editor with AI support. Loads <a href="examples/mental-health-interactive-news.html"><code>examples/mental-health-interactive-news.html</code></a> as a Gutenberg post in a fresh Playground site.</sub>
 </p>
 
 ## License
