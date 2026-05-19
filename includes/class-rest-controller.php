@@ -140,6 +140,12 @@ class Pressmind_REST_Controller {
 			return $result;
 		}
 
+		$result = $this->validate_sandbox_policy( $result );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
 		$result = $this->import_assets( $result );
 		$result = $this->sanitize_generation_result( $result );
 
@@ -190,6 +196,19 @@ class Pressmind_REST_Controller {
 				);
 			}
 		);
+
+		if ( is_wp_error( $result ) ) {
+			$this->send_event_stream_message(
+				'error',
+				array(
+					'message' => $result->get_error_message(),
+				)
+			);
+			$this->send_event_stream_message( 'done', array() );
+			exit;
+		}
+
+		$result = $this->validate_sandbox_policy( $result );
 
 		if ( is_wp_error( $result ) ) {
 			$this->send_event_stream_message(
@@ -698,6 +717,10 @@ class Pressmind_REST_Controller {
 		$blocks = parse_blocks( $serialized_blocks );
 		$blocks = $this->sanitize_blocks( $blocks );
 
+		if ( is_wp_error( $blocks ) ) {
+			return $blocks;
+		}
+
 		if ( empty( $blocks ) ) {
 			return new WP_Error(
 				'pressmind_invalid_blocks',
@@ -718,7 +741,7 @@ class Pressmind_REST_Controller {
 	 * Sanitize parsed blocks and remove unsupported blocks.
 	 *
 	 * @param array $blocks Parsed blocks.
-	 * @return array
+	 * @return array|WP_Error
 	 */
 	private function sanitize_blocks( array $blocks ) {
 		$sanitized = array();
@@ -734,9 +757,17 @@ class Pressmind_REST_Controller {
 
 			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
 				$block['innerBlocks'] = $this->sanitize_blocks( $block['innerBlocks'] );
+
+				if ( is_wp_error( $block['innerBlocks'] ) ) {
+					return $block['innerBlocks'];
+				}
 			}
 
 			if ( isset( $block['blockName'] ) && 'pressmind/sandbox' === $block['blockName'] ) {
+				if ( $this->is_sandbox_generation_disallowed() ) {
+					return $this->get_sandbox_disallowed_error();
+				}
+
 				$block['attrs']        = $this->sanitize_sandbox_attrs(
 					isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array()
 				);
@@ -747,6 +778,10 @@ class Pressmind_REST_Controller {
 			}
 
 			if ( isset( $block['blockName'] ) && 'core/html' === $block['blockName'] && $this->should_convert_html_to_sandbox( $block ) ) {
+				if ( $this->is_sandbox_generation_disallowed() ) {
+					return $this->get_sandbox_disallowed_error();
+				}
+
 				$sanitized[] = $this->convert_html_block_to_sandbox( $block );
 				continue;
 			}
@@ -764,6 +799,86 @@ class Pressmind_REST_Controller {
 		}
 
 		return $sanitized;
+	}
+
+	/**
+	 * Reject generated markup that would require sandboxed iframe rendering.
+	 *
+	 * @param array $result Generation result.
+	 * @return array|WP_Error
+	 */
+	private function validate_sandbox_policy( array $result ) {
+		if ( ! $this->is_sandbox_generation_disallowed() ) {
+			return $result;
+		}
+
+		$serialized_blocks = isset( $result['serializedBlocks'] ) ? trim( (string) $result['serializedBlocks'] ) : '';
+
+		if ( '' === $serialized_blocks ) {
+			return $result;
+		}
+
+		if ( $this->blocks_require_sandbox( parse_blocks( $serialized_blocks ) ) ) {
+			return $this->get_sandbox_disallowed_error();
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Determine whether parsed blocks would require sandbox rendering.
+	 *
+	 * @param array $blocks Parsed blocks.
+	 * @return bool
+	 */
+	private function blocks_require_sandbox( array $blocks ) {
+		foreach ( $blocks as $block ) {
+			if ( isset( $block['blockName'] ) && 'pressmind/sandbox' === $block['blockName'] ) {
+				return true;
+			}
+
+			if ( isset( $block['blockName'] ) && 'core/html' === $block['blockName'] && $this->should_convert_html_to_sandbox( $block ) ) {
+				return true;
+			}
+
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) && $this->blocks_require_sandbox( $block['innerBlocks'] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Build the shared sandbox policy error.
+	 *
+	 * @return WP_Error
+	 */
+	private function get_sandbox_disallowed_error() {
+		return new WP_Error(
+			'pressmind_sandbox_disallowed',
+			__( 'Sandboxed AI HTML is disabled because DISALLOW_UNFILTERED_HTML is enabled for this site. Ask for static blocks, HTML, or SVG without scripts or style tags instead.', 'pressmind' ),
+			array( 'status' => 403 )
+		);
+	}
+
+	/**
+	 * Determine whether site policy disallows generated sandbox blocks.
+	 *
+	 * @return bool
+	 */
+	private function is_sandbox_generation_disallowed() {
+		if ( function_exists( 'pressmind_is_sandbox_generation_disallowed' ) ) {
+			return pressmind_is_sandbox_generation_disallowed();
+		}
+
+		if ( ! defined( 'DISALLOW_UNFILTERED_HTML' ) ) {
+			return false;
+		}
+
+		$value = constant( 'DISALLOW_UNFILTERED_HTML' );
+
+		return true === $value || 1 === $value || '1' === (string) $value || 'true' === strtolower( (string) $value );
 	}
 
 	/**

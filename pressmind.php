@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Pressmind
  * Description: Generate Gutenberg-compatible blocks from prompts and current post context.
- * Version: 0.0.5
+ * Version: 0.0.6
  * Author: Pressmind
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'PRESSMIND_VERSION', '0.0.5' );
+define( 'PRESSMIND_VERSION', '0.0.6' );
 define( 'PRESSMIND_PLUGIN_FILE', __FILE__ );
 define( 'PRESSMIND_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PRESSMIND_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -72,6 +72,37 @@ function pressmind_register_block() {
 add_action( 'init', 'pressmind_register_block' );
 
 /**
+ * Determine whether sandboxed generated HTML is disabled by site policy.
+ *
+ * @return bool
+ */
+function pressmind_is_sandbox_generation_disallowed() {
+	if ( ! defined( 'DISALLOW_UNFILTERED_HTML' ) ) {
+		return false;
+	}
+
+	$value = constant( 'DISALLOW_UNFILTERED_HTML' );
+
+	return true === $value || 1 === $value || '1' === (string) $value || 'true' === strtolower( (string) $value );
+}
+
+/**
+ * Expose editor policy flags to the prompt block script.
+ */
+function pressmind_enqueue_editor_settings() {
+	wp_add_inline_script(
+		'pressmind-prompt-block-editor-script',
+		'window.pressmindPromptBlock = ' . wp_json_encode(
+			array(
+				'disallowSandboxGeneration' => pressmind_is_sandbox_generation_disallowed(),
+			)
+		) . ';',
+		'before'
+	);
+}
+add_action( 'enqueue_block_editor_assets', 'pressmind_enqueue_editor_settings' );
+
+/**
  * Render generated interactive content inside an isolated iframe.
  *
  * @param array $attributes Block attributes.
@@ -84,6 +115,15 @@ function pressmind_render_sandbox_block( $attributes ) {
 	$js     = isset( $attributes['js'] ) ? (string) $attributes['js'] : '';
 	$height = isset( $attributes['height'] ) ? absint( $attributes['height'] ) : 640;
 	$height = max( 240, $height );
+
+	if ( pressmind_is_sandbox_generation_disallowed() ) {
+		return sprintf(
+			'<div class="wp-block-pressmind-sandbox" style="border:1px solid #ddd;border-radius:4px;padding:16px;background:#fff;"><strong>%1$s</strong><p>%2$s</p></div>',
+			esc_html( $title ),
+			esc_html__( 'Sandboxed AI HTML is disabled because DISALLOW_UNFILTERED_HTML is enabled for this site.', 'pressmind' )
+		);
+	}
+
 	$id     = wp_unique_id( 'pressmind-sandbox-' );
 	$srcdoc = pressmind_build_sandbox_srcdoc( $html, $css, $js, $id );
 

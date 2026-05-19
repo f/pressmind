@@ -11,6 +11,8 @@ import { useDispatch, useSelect } from '@wordpress/data';
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
+const pressmindPromptBlockSettings = window.pressmindPromptBlock || {};
+
 const normalizeEditorValue = ( value ) => {
 	if ( typeof value === 'string' ) {
 		return value;
@@ -166,6 +168,9 @@ export default function Edit( { attributes, setAttributes, clientId } ) {
 							content: editorContext.content,
 							selectedBlocks: editorContext.selectedBlocks,
 							allBlocks: editorContext.allBlocks,
+							sandboxGenerationDisabled: Boolean(
+								pressmindPromptBlockSettings.disallowSandboxGeneration
+							),
 						},
 					} ),
 				}

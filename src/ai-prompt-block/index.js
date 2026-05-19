@@ -22,6 +22,15 @@ import metadata from './block.json';
 import './editor.scss';
 import save from './save';
 
+const pressmindPromptBlockSettings = window.pressmindPromptBlock || {};
+const isSandboxGenerationDisallowed = Boolean(
+	pressmindPromptBlockSettings.disallowSandboxGeneration
+);
+const sandboxDisallowedMessage = __(
+	'Sandboxed AI HTML is disabled because DISALLOW_UNFILTERED_HTML is enabled for this site.',
+	'pressmind'
+);
+
 const stripHtml = ( value = '' ) => {
 	const element = document.createElement( 'div' );
 	element.innerHTML = value;
@@ -170,6 +179,35 @@ function SandboxEdit( { attributes, setAttributes, isSelected, clientId } ) {
 
 		return () => window.removeEventListener( 'message', handleMessage );
 	}, [ minHeight, sandboxId ] );
+
+	if ( isSandboxGenerationDisallowed ) {
+		return (
+			<div { ...blockProps }>
+				{ isSelected ? (
+					<div className="pressmind-sandbox-block__editor">
+						<TextControl
+							label={ __( 'Title', 'pressmind' ) }
+							value={ attributes.title }
+							onChange={ ( title ) => setAttributes( { title } ) }
+						/>
+						<TextControl
+							label={ __( 'Height', 'pressmind' ) }
+							type="number"
+							value={ attributes.height }
+							onChange={ ( nextHeight ) =>
+								setAttributes( {
+									height: Number( nextHeight ) || 640,
+								} )
+							}
+						/>
+					</div>
+				) : null }
+				<Notice status="warning" isDismissible={ false }>
+					{ sandboxDisallowedMessage }
+				</Notice>
+			</div>
+		);
+	}
 
 	return (
 		<div { ...blockProps }>
@@ -343,6 +381,8 @@ function AiEditPanel( { blockName, clientId, attributes } ) {
 						context: {
 							...postContext,
 							editMode: true,
+							sandboxGenerationDisabled:
+								isSandboxGenerationDisallowed,
 							existingBlock: {
 								name: blockName,
 								serialized: serializedBlock,
@@ -486,7 +526,8 @@ addFilter(
 		const isEditableGeneratedBlock =
 			props.isSelected &&
 			( props.name === 'core/html' ||
-				props.name === 'pressmind/sandbox' );
+				( props.name === 'pressmind/sandbox' &&
+					! isSandboxGenerationDisallowed ) );
 
 		return (
 			<>

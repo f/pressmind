@@ -4,7 +4,7 @@ Tags: block-editor, ai, gutenberg, openai, blocks
 Requires at least: 6.5
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.0.5
+Stable tag: 0.0.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -99,6 +99,11 @@ Pressmind is experimental. Review generated content and code before publishing.
 
 == Changelog ==
 
+= 0.0.6 =
+* Respect `DISALLOW_UNFILTERED_HTML` by disabling AI-generated sandbox iframe output when the site policy is enabled.
+* Reject generated sandbox blocks and scripted/style-tagged HTML before insertion when sandbox generation is disabled.
+* Show a non-executing warning for existing sandbox blocks while sandbox generation is disabled.
+
 = 0.0.5 =
 * Added a longform mental-health interactive news example post that mimics Pressmind output (`examples/mental-health-interactive-news.html`).
 * Added a dedicated Playground blueprint (`blueprint-mental-health.json`) that imports the example as a Gutenberg post.
@@ -131,6 +136,9 @@ Pressmind is experimental. Review generated content and code before publishing.
 
 == Upgrade Notice ==
 
+= 0.0.6 =
+Disables AI-generated sandbox iframe output when `DISALLOW_UNFILTERED_HTML` is enabled for the site.
+
 = 0.0.5 =
 Adds a longform interactive example post, a Playground blueprint that imports it, and an example output GIF in the README.
 
@@ -139,4 +147,3 @@ Improves multi-provider compatibility and image generation reliability.
 
 = 0.0.3 =
 Adds explicit credential source selection and improves support for WordPress Connectors API.
-
