@@ -171,6 +171,9 @@ export default function Edit( { attributes, setAttributes, clientId } ) {
 							sandboxGenerationDisabled: Boolean(
 								pressmindPromptBlockSettings.disallowSandboxGeneration
 							),
+							seamlessMode: Boolean(
+								pressmindPromptBlockSettings.seamlessMode
+							),
 						},
 					} ),
 				}

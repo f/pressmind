@@ -411,7 +411,7 @@ class Pressmind_AI_Provider {
 	 * @return array|null
 	 */
 	private function build_response_format( array $options ) {
-		$mode = isset( $options['response_format'] ) ? (string) $options['response_format'] : 'json_object';
+		$mode = isset( $options['resolved_response_format'] ) ? (string) $options['resolved_response_format'] : ( $options['response_format'] ?? 'json_object' );
 
 		if ( 'none' === $mode ) {
 			return null;
@@ -509,6 +509,8 @@ PROMPT;
 
 		if ( function_exists( 'pressmind_is_sandbox_generation_disallowed' ) && pressmind_is_sandbox_generation_disallowed() ) {
 			$prompt .= "\n\nSandboxed AI HTML is disabled because DISALLOW_UNFILTERED_HTML is enabled for this site. Do not return pressmind/sandbox blocks. Do not return core/html that contains scripts, style tags, scoped CSS, event handlers, iframes, stateful controls, or games. If the user asks for interactive or scripted content, return a safe static alternative and include a warning that sandboxed interactive output is disabled by site policy.";
+		} elseif ( ! empty( $options['seamless_mode'] ) ) {
+			$prompt .= "\n\nSeamless mode is enabled. For content that requires JavaScript, script tags, page-level styles, event handlers, state, animation, full-page visual effects such as snow or confetti, or interactive widgets, use the custom Pressmind block. In this mode the block is injected directly into the WordPress page, not isolated in an iframe, so HTML, CSS, and JavaScript may intentionally affect the current page document. Use this serialized block shape:\n<!-- wp:pressmind/sandbox {\"title\":\"Short title\",\"height\":640,\"html\":\"<main id=\\\"app\\\"></main>\",\"css\":\"body{padding:24px;} .snowflake{position:fixed;}\",\"js\":\"const app=document.getElementById('app');\"} /-->\nKeep generated code self-contained and resilient. Use unique ids/classes to avoid accidental collisions. Do not use external network calls, remote scripts, remote stylesheets, cookies, localStorage, parent/window.top access, or navigation.";
 		} else {
 			$prompt .= "\n\nFor content that requires JavaScript, script tags, style tags, scoped CSS, event handlers, state, buttons, keyboard interaction, or games such as tic-tac-toe, use the custom sandbox block instead of core/html. The sandbox block is rendered inside an isolated iframe with sandbox=\"allow-scripts\", no same-origin access, no parent DOM access, and no plugin/page style leakage. Use this serialized block shape:\n<!-- wp:pressmind/sandbox {\"title\":\"Short title\",\"height\":640,\"html\":\"<main id=\\\"app\\\"></main>\",\"css\":\"body{padding:24px;}\",\"js\":\"const app=document.getElementById('app');\"} /-->\nKeep sandbox HTML, CSS, and JS self-contained. Choose a height large enough for the full UI so the iframe does not need vertical scrolling. Do not use external network calls, remote scripts, remote stylesheets, cookies, localStorage, parent/window.top access, or navigation. Prefer event listeners in JS over inline event handler attributes.";
 		}

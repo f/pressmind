@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Pressmind
  * Description: Generate Gutenberg-compatible blocks from prompts and current post context.
- * Version: 0.0.6
+ * Version: 0.0.7
  * Author: Pressmind
  * License: GPL-2.0-or-later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'PRESSMIND_VERSION', '0.0.6' );
+define( 'PRESSMIND_VERSION', '0.0.7' );
 define( 'PRESSMIND_PLUGIN_FILE', __FILE__ );
 define( 'PRESSMIND_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PRESSMIND_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -87,6 +87,26 @@ function pressmind_is_sandbox_generation_disallowed() {
 }
 
 /**
+ * Determine whether generated code should be injected directly.
+ *
+ * @return bool
+ */
+function pressmind_is_seamless_mode_enabled() {
+	if ( pressmind_is_sandbox_generation_disallowed() ) {
+		return false;
+	}
+
+	$options = wp_parse_args(
+		get_option( Pressmind_Settings::OPTION_NAME, array() ),
+		array(
+			'seamless_mode' => 0,
+		)
+	);
+
+	return ! empty( $options['seamless_mode'] );
+}
+
+/**
  * Expose editor policy flags to the prompt block script.
  */
 function pressmind_enqueue_editor_settings() {
@@ -95,6 +115,7 @@ function pressmind_enqueue_editor_settings() {
 		'window.pressmindPromptBlock = ' . wp_json_encode(
 			array(
 				'disallowSandboxGeneration' => pressmind_is_sandbox_generation_disallowed(),
+				'seamlessMode'              => pressmind_is_seamless_mode_enabled(),
 			)
 		) . ';',
 		'before'
@@ -124,6 +145,10 @@ function pressmind_render_sandbox_block( $attributes ) {
 		);
 	}
 
+	if ( pressmind_is_seamless_mode_enabled() ) {
+		return pressmind_render_seamless_block( $title, $html, $css, $js );
+	}
+
 	$id     = wp_unique_id( 'pressmind-sandbox-' );
 	$srcdoc = pressmind_build_sandbox_srcdoc( $html, $css, $js, $id );
 
@@ -136,6 +161,28 @@ function pressmind_render_sandbox_block( $attributes ) {
 		esc_js( $id ),
 		esc_js( $id ),
 		$height
+	);
+}
+
+/**
+ * Render generated content directly in the page for seamless mode.
+ *
+ * @param string $title Accessible block title.
+ * @param string $html  Body HTML.
+ * @param string $css   Page CSS.
+ * @param string $js    Page JavaScript.
+ * @return string
+ */
+function pressmind_render_seamless_block( $title, $html, $css, $js ) {
+	$css = str_ireplace( '</style', '<\/style', $css );
+	$js  = str_ireplace( '</script', '<\/script', $js );
+
+	return sprintf(
+		'<div class="wp-block-pressmind-sandbox pressmind-seamless-block" data-pressmind-mode="seamless" aria-label="%1$s"><style>%2$s</style>%3$s<script>(function(){try{%4$s}catch(error){if(window.console){console.error("Pressmind seamless block failed",error);}}}());</script></div>',
+		esc_attr( $title ),
+		$css,
+		$html,
+		$js
 	);
 }
 

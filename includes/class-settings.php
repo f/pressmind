@@ -87,12 +87,19 @@ class Pressmind_Settings {
 			'pressmind_provider'
 		);
 
+		add_settings_section(
+			'pressmind_rendering',
+			__( 'Rendering', 'pressmind' ),
+			array( $this, 'render_rendering_section' ),
+			'pressmind_settings'
+		);
+
 		add_settings_field(
-			'response_format',
-			__( 'Response Format', 'pressmind' ),
-			array( $this, 'render_response_format_field' ),
+			'seamless_mode',
+			__( 'Seamless Mode', 'pressmind' ),
+			array( $this, 'render_seamless_mode_field' ),
 			'pressmind_settings',
-			'pressmind_provider'
+			'pressmind_rendering'
 		);
 
 		add_settings_section(
@@ -164,16 +171,30 @@ class Pressmind_Settings {
 			$options['api_key']        = $connector_api_key;
 			$options['api_key_source'] = $connector_api_key ? 'connector' : 'connector_missing';
 
-			$endpoint_defaults = $this->get_connector_endpoint_defaults();
+			$connectors = $this->get_ai_connectors();
 
-			if ( isset( $endpoint_defaults[ $options['connector_id'] ] ) ) {
-				$options['api_endpoint'] = $endpoint_defaults[ $options['connector_id'] ];
+			if ( isset( $connectors[ $options['connector_id'] ] ) ) {
+				$connector_endpoint = $this->get_connector_endpoint_default( $options['connector_id'], $connectors[ $options['connector_id'] ] );
+
+				if ( $connector_endpoint ) {
+					$options['api_endpoint'] = $connector_endpoint;
+				}
 			}
 		} elseif ( ! empty( $options['api_key'] ) ) {
 			$options['api_key_source'] = 'pressmind';
 		} else {
 			$options['api_key_source'] = '';
 		}
+
+		$options['response_format']      = isset( $options['response_format'] ) ? (string) $options['response_format'] : $this->get_defaults()['response_format'];
+		$options['response_format_mode'] = 'manual' === ( $options['response_format_mode'] ?? '' ) ? 'manual' : 'auto';
+
+		if ( ! in_array( $options['response_format'], array( 'none', 'json_object', 'json_schema' ), true ) ) {
+			$options['response_format'] = 'json_object';
+		}
+
+		$options['resolved_response_format'] = $this->resolve_response_format( $options );
+		$options['seamless_mode'] = ! $this->is_sandbox_generation_disallowed() && ! empty( $options['seamless_mode'] ) ? 1 : 0;
 
 		return $options;
 	}
@@ -215,6 +236,75 @@ class Pressmind_Settings {
 			'anthropic' => 'https://api.anthropic.com/v1/chat/completions',
 			'google'    => 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
 		);
+	}
+
+	/**
+	 * Get the default endpoint for a connector.
+	 *
+	 * @param string $connector_id Connector ID.
+	 * @param array  $connector    Connector config.
+	 * @return string
+	 */
+	private function get_connector_endpoint_default( $connector_id, $connector = array() ) {
+		$endpoint_defaults = $this->get_connector_endpoint_defaults();
+		$connector_id      = sanitize_key( $connector_id );
+
+		if ( isset( $endpoint_defaults[ $connector_id ] ) ) {
+			return $endpoint_defaults[ $connector_id ];
+		}
+
+		$name   = strtolower( (string) ( $connector['name'] ?? '' ) );
+		$lookup = strtolower( $connector_id . ' ' . $name );
+
+		if ( false !== strpos( $lookup, 'gemini' ) || false !== strpos( $lookup, 'google' ) ) {
+			return $endpoint_defaults['google'];
+		}
+
+		if ( false !== strpos( $lookup, 'anthropic' ) || false !== strpos( $lookup, 'claude' ) ) {
+			return $endpoint_defaults['anthropic'];
+		}
+
+		if ( false !== strpos( $lookup, 'openai' ) ) {
+			return $endpoint_defaults['openai'];
+		}
+
+		return '';
+	}
+
+	/**
+	 * Resolve response_format from the selected model/provider.
+	 *
+	 * @param array $options Normalized settings.
+	 * @return string
+	 */
+	private function resolve_response_format( array $options ) {
+		if ( 'manual' === ( $options['response_format_mode'] ?? '' ) ) {
+			return $options['response_format'];
+		}
+
+		return $this->infer_response_format(
+			$options['model'] ?? '',
+			$options['api_endpoint'] ?? '',
+			$options['connector_id'] ?? ''
+		);
+	}
+
+	/**
+	 * Infer response_format from model, endpoint, and connector hints.
+	 *
+	 * @param string $model        Model name.
+	 * @param string $api_endpoint API endpoint URL.
+	 * @param string $connector_id Connector ID.
+	 * @return string
+	 */
+	private function infer_response_format( $model, $api_endpoint, $connector_id ) {
+		$lookup = strtolower( (string) $model . ' ' . (string) $api_endpoint . ' ' . (string) $connector_id );
+
+		if ( false !== strpos( $lookup, 'anthropic' ) || false !== strpos( $lookup, 'claude' ) ) {
+			return 'json_schema';
+		}
+
+		return 'json_object';
 	}
 
 	/**
@@ -261,6 +351,25 @@ class Pressmind_Settings {
 	}
 
 	/**
+	 * Determine whether site policy disallows unfiltered generated HTML.
+	 *
+	 * @return bool
+	 */
+	private function is_sandbox_generation_disallowed() {
+		if ( function_exists( 'pressmind_is_sandbox_generation_disallowed' ) ) {
+			return pressmind_is_sandbox_generation_disallowed();
+		}
+
+		if ( ! defined( 'DISALLOW_UNFILTERED_HTML' ) ) {
+			return false;
+		}
+
+		$value = constant( 'DISALLOW_UNFILTERED_HTML' );
+
+		return true === $value || 1 === $value || '1' === (string) $value || 'true' === strtolower( (string) $value );
+	}
+
+	/**
 	 * Sanitize settings before persistence.
 	 *
 	 * @param array $options Raw options.
@@ -273,10 +382,16 @@ class Pressmind_Settings {
 			$this->get_defaults()
 		);
 
-		$response_format = isset( $options['response_format'] ) ? (string) $options['response_format'] : $existing['response_format'];
+		$response_format_choice = isset( $options['response_format'] ) ? (string) $options['response_format'] : 'auto';
+		$response_format_mode   = 'auto' === $response_format_choice ? 'auto' : 'manual';
+		$response_format        = $response_format_choice;
 
 		if ( ! in_array( $response_format, array( 'none', 'json_object', 'json_schema' ), true ) ) {
-			$response_format = 'json_object';
+			$response_format = $this->infer_response_format(
+				$options['model'] ?? $existing['model'],
+				$options['api_endpoint'] ?? $existing['api_endpoint'],
+				$options['connector_id'] ?? $existing['connector_id']
+			);
 		}
 
 		return array(
@@ -285,7 +400,9 @@ class Pressmind_Settings {
 			'api_key'                 => isset( $options['api_key'] ) ? sanitize_text_field( $options['api_key'] ) : sanitize_text_field( $existing['api_key'] ),
 			'api_endpoint'            => isset( $options['api_endpoint'] ) ? esc_url_raw( $options['api_endpoint'] ) : '',
 			'model'                   => isset( $options['model'] ) ? sanitize_text_field( $options['model'] ) : '',
+			'response_format_mode'    => $response_format_mode,
 			'response_format'         => $response_format,
+			'seamless_mode'           => ! $this->is_sandbox_generation_disallowed() && ! empty( $options['seamless_mode'] ) ? 1 : 0,
 			'enable_image_generation' => ! empty( $options['enable_image_generation'] ) ? 1 : 0,
 			'image_model'             => isset( $options['image_model'] ) ? sanitize_text_field( $options['image_model'] ) : '',
 			'image_size'              => isset( $options['image_size'] ) ? sanitize_text_field( $options['image_size'] ) : '',
@@ -304,7 +421,9 @@ class Pressmind_Settings {
 			'api_key'                 => '',
 			'api_endpoint'            => 'https://api.openai.com/v1/chat/completions',
 			'model'                   => 'gpt-4.1-mini',
+			'response_format_mode'    => 'auto',
 			'response_format'         => 'json_object',
+			'seamless_mode'           => 0,
 			'enable_image_generation' => 0,
 			'image_model'             => 'gpt-image-1',
 			'image_size'              => '1024x1024',
@@ -366,15 +485,13 @@ class Pressmind_Settings {
 			return;
 		}
 
-		$endpoint_defaults = $this->get_connector_endpoint_defaults();
-
 		printf(
 			'<select id="pressmind-connector-id" name="%1$s[connector_id]">',
 			esc_attr( self::OPTION_NAME )
 		);
 
 		foreach ( $connectors as $connector_id => $connector ) {
-			$endpoint = isset( $endpoint_defaults[ $connector_id ] ) ? $endpoint_defaults[ $connector_id ] : '';
+			$endpoint = $this->get_connector_endpoint_default( $connector_id, $connector );
 
 			printf(
 				'<option value="%1$s" data-endpoint="%2$s" %3$s>%4$s</option>',
@@ -388,13 +505,19 @@ class Pressmind_Settings {
 		echo '</select>';
 		echo '<p class="description">' . esc_html__( 'The selected connector provides the API key. Choose the model name below.', 'pressmind' ) . '</p>';
 
-		$current_endpoint = $endpoint_defaults[ $options['connector_id'] ] ?? '';
+		$current_connector = $connectors[ $options['connector_id'] ] ?? array();
+		$current_endpoint  = $this->get_connector_endpoint_default( $options['connector_id'], $current_connector );
 
 		if ( $current_endpoint ) {
 			printf(
-				'<p class="description">%s <code>%s</code></p>',
+				'<p class="description" id="pressmind-connector-endpoint-description">%s <code id="pressmind-connector-endpoint">%s</code></p>',
 				esc_html__( 'Requests will be sent to:', 'pressmind' ),
 				esc_html( $current_endpoint )
+			);
+		} else {
+			printf(
+				'<p class="description" id="pressmind-connector-endpoint-description" hidden>%s <code id="pressmind-connector-endpoint"></code></p>',
+				esc_html__( 'Requests will be sent to:', 'pressmind' )
 			);
 		}
 	}
@@ -442,7 +565,7 @@ class Pressmind_Settings {
 		$options = $this->get_options();
 
 		printf(
-			'<input type="text" name="%1$s[model]" value="%2$s" class="regular-text" />',
+			'<input type="text" id="pressmind-model" name="%1$s[model]" value="%2$s" class="regular-text" />',
 			esc_attr( self::OPTION_NAME ),
 			esc_attr( $options['model'] )
 		);
@@ -453,14 +576,15 @@ class Pressmind_Settings {
 	 */
 	public function render_response_format_field() {
 		$options  = $this->get_options();
-		$current  = $options['response_format'];
+		$current  = 'auto' === ( $options['response_format_mode'] ?? 'auto' ) ? 'auto' : $options['response_format'];
 		$choices  = array(
+			'auto'        => __( 'Auto — choose from model/provider', 'pressmind' ),
 			'none'        => __( 'None — rely on the system prompt to enforce JSON', 'pressmind' ),
 			'json_object' => __( 'json_object — OpenAI / Gemini compat', 'pressmind' ),
 			'json_schema' => __( 'json_schema — Anthropic compat, strict schema', 'pressmind' ),
 		);
 
-		printf( '<select name="%1$s[response_format]">', esc_attr( self::OPTION_NAME ) );
+		printf( '<select id="pressmind-response-format" name="%1$s[response_format]">', esc_attr( self::OPTION_NAME ) );
 
 		foreach ( $choices as $value => $label ) {
 			printf(
@@ -472,7 +596,42 @@ class Pressmind_Settings {
 		}
 
 		echo '</select>';
-		echo '<p class="description">' . esc_html__( 'OpenAI accepts json_object. Anthropic OpenAI-compat requires json_schema. Pick None if the provider rejects both.', 'pressmind' ) . '</p>';
+		printf(
+			'<p class="description">%1$s <code id="pressmind-response-format-resolved">%2$s</code></p>',
+			esc_html__( 'Automatic mode currently resolves to:', 'pressmind' ),
+			esc_html( $options['resolved_response_format'] )
+		);
+		echo '<p class="description">' . esc_html__( 'Leave this on Auto unless a provider rejects the generated response format.', 'pressmind' ) . '</p>';
+	}
+
+	/**
+	 * Render rendering section description.
+	 */
+	public function render_rendering_section() {
+		echo '<p>' . esc_html__( 'Choose whether generated interactive HTML runs in an isolated iframe or directly in the page.', 'pressmind' ) . '</p>';
+	}
+
+	/**
+	 * Render seamless mode consent toggle.
+	 */
+	public function render_seamless_mode_field() {
+		$options     = $this->get_options();
+		$is_disabled = $this->is_sandbox_generation_disallowed();
+
+		printf(
+			'<label><input type="checkbox" name="%1$s[seamless_mode]" value="1" %2$s %3$s /> %4$s</label>',
+			esc_attr( self::OPTION_NAME ),
+			checked( ! empty( $options['seamless_mode'] ), true, false ),
+			disabled( $is_disabled, true, false ),
+			esc_html__( 'I understand that seamless mode disables iframe sandboxing and injects generated HTML, CSS, and JavaScript directly into the page.', 'pressmind' )
+		);
+
+		if ( $is_disabled ) {
+			echo '<p class="description">' . esc_html__( 'Seamless mode is unavailable because DISALLOW_UNFILTERED_HTML is enabled. Change that site setting before enabling direct code injection.', 'pressmind' ) . '</p>';
+			return;
+		}
+
+		echo '<p class="description">' . esc_html__( 'Keep this off to isolate generated scripts and styles in sandboxed iframes. Turn it on only for trusted editors and reviewed output.', 'pressmind' ) . '</p>';
 	}
 
 	/**
@@ -524,6 +683,23 @@ class Pressmind_Settings {
 	}
 
 	/**
+	 * Render collapsed advanced settings.
+	 */
+	public function render_advanced_settings() {
+		?>
+		<details class="pressmind-advanced-settings">
+			<summary><?php esc_html_e( 'Advanced settings', 'pressmind' ); ?></summary>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Response Format', 'pressmind' ); ?></th>
+					<td><?php $this->render_response_format_field(); ?></td>
+				</tr>
+			</table>
+		</details>
+		<?php
+	}
+
+	/**
 	 * Render settings page.
 	 */
 	public function render_options_page() {
@@ -537,6 +713,7 @@ class Pressmind_Settings {
 				<?php
 				settings_fields( 'pressmind_settings' );
 				do_settings_sections( 'pressmind_settings' );
+				$this->render_advanced_settings();
 				submit_button();
 				?>
 			</form>
@@ -567,27 +744,101 @@ class Pressmind_Settings {
 
 				const connector = document.getElementById( 'pressmind-connector-id' );
 				const endpoint = document.getElementById( 'pressmind-api-endpoint' );
+				const endpointMessage = document.getElementById(
+					'pressmind-connector-endpoint-description'
+				);
+				const endpointLabel = document.getElementById(
+					'pressmind-connector-endpoint'
+				);
+				const model = document.getElementById( 'pressmind-model' );
+				const responseFormat = document.getElementById(
+					'pressmind-response-format'
+				);
+				const resolvedResponseFormat = document.getElementById(
+					'pressmind-response-format-resolved'
+				);
+
+				const inferResponseFormat = () => {
+					const selectedOption =
+						connector && connector.options[ connector.selectedIndex ];
+					const connectorValue =
+						source.value === 'connector' && connector ? connector.value : '';
+					const connectorEndpoint =
+						source.value === 'connector' && selectedOption
+							? selectedOption.getAttribute( 'data-endpoint' ) || ''
+							: '';
+					const lookup = [
+						model ? model.value : '',
+						connectorEndpoint || ( endpoint ? endpoint.value : '' ),
+						connectorValue,
+					]
+						.join( ' ' )
+						.toLowerCase();
+
+					if (
+						lookup.includes( 'anthropic' ) ||
+						lookup.includes( 'claude' )
+					) {
+						return 'json_schema';
+					}
+
+					return 'json_object';
+				};
+
+				const syncResponseFormat = () => {
+					if ( resolvedResponseFormat ) {
+						resolvedResponseFormat.textContent = inferResponseFormat();
+					}
+				};
 
 				const syncEndpointToConnector = () => {
-					if ( ! connector || ! endpoint || source.value !== 'connector' ) {
+					if ( ! connector || source.value !== 'connector' ) {
+						syncResponseFormat();
 						return;
 					}
 
 					const option = connector.options[ connector.selectedIndex ];
 					const next = option ? option.getAttribute( 'data-endpoint' ) : '';
 
-					if ( next ) {
+					if ( next && endpoint ) {
 						endpoint.value = next;
 					}
+
+					if ( endpointLabel ) {
+						endpointLabel.textContent = next;
+					}
+
+					if ( endpointMessage ) {
+						endpointMessage.hidden = ! next;
+					}
+
+					syncResponseFormat();
 				};
 
-				source.addEventListener( 'change', toggleRows );
+				source.addEventListener( 'change', () => {
+					toggleRows();
+					syncEndpointToConnector();
+				} );
 
 				if ( connector ) {
 					connector.addEventListener( 'change', syncEndpointToConnector );
 				}
 
+				if ( endpoint ) {
+					endpoint.addEventListener( 'input', syncResponseFormat );
+				}
+
+				if ( model ) {
+					model.addEventListener( 'input', syncResponseFormat );
+				}
+
+				if ( responseFormat ) {
+					responseFormat.addEventListener( 'change', syncResponseFormat );
+				}
+
 				toggleRows();
+				syncEndpointToConnector();
+				syncResponseFormat();
 			}() );
 		</script>
 		<?php

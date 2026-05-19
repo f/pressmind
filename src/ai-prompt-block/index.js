@@ -26,6 +26,9 @@ const pressmindPromptBlockSettings = window.pressmindPromptBlock || {};
 const isSandboxGenerationDisallowed = Boolean(
 	pressmindPromptBlockSettings.disallowSandboxGeneration
 );
+const isSeamlessModeEnabled = Boolean(
+	pressmindPromptBlockSettings.seamlessMode
+);
 const sandboxDisallowedMessage = __(
 	'Sandboxed AI HTML is disabled because DISALLOW_UNFILTERED_HTML is enabled for this site.',
 	'pressmind'
@@ -139,6 +142,49 @@ const buildSandboxSrcDoc = ( { html = '', css = '', js = '' }, sandboxId ) => {
 </html>`;
 };
 
+function SeamlessPreview( { attributes } ) {
+	const previewRef = useRef();
+
+	useEffect( () => {
+		const node = previewRef.current;
+
+		if ( ! node ) {
+			return;
+		}
+
+		node.innerHTML = '';
+
+		if ( attributes.css ) {
+			const style = document.createElement( 'style' );
+			style.textContent = attributes.css;
+			node.appendChild( style );
+		}
+
+		const content = document.createElement( 'div' );
+		content.className = 'pressmind-seamless-block__html';
+		content.innerHTML = attributes.html || '';
+		node.appendChild( content );
+
+		if ( attributes.js ) {
+			try {
+				window.Function( attributes.js )();
+			} catch ( error ) {
+				// eslint-disable-next-line no-console
+				console.error( 'Pressmind seamless block failed', error );
+			}
+		}
+	}, [ attributes.html, attributes.css, attributes.js ] );
+
+	return (
+		<div
+			ref={ previewRef }
+			className="pressmind-seamless-block"
+			data-pressmind-mode="seamless"
+			aria-label={ attributes.title }
+		/>
+	);
+}
+
 function SandboxEdit( { attributes, setAttributes, isSelected, clientId } ) {
 	const blockProps = useBlockProps( {
 		className: 'pressmind-sandbox-block',
@@ -205,6 +251,57 @@ function SandboxEdit( { attributes, setAttributes, isSelected, clientId } ) {
 				<Notice status="warning" isDismissible={ false }>
 					{ sandboxDisallowedMessage }
 				</Notice>
+			</div>
+		);
+	}
+
+	if ( isSeamlessModeEnabled ) {
+		return (
+			<div { ...blockProps }>
+				{ isSelected ? (
+					<div className="pressmind-sandbox-block__editor">
+						<TextControl
+							label={ __( 'Title', 'pressmind' ) }
+							value={ attributes.title }
+							onChange={ ( title ) => setAttributes( { title } ) }
+						/>
+						<TextControl
+							label={ __( 'Height', 'pressmind' ) }
+							type="number"
+							value={ attributes.height }
+							onChange={ ( nextHeight ) =>
+								setAttributes( {
+									height: Number( nextHeight ) || 640,
+								} )
+							}
+						/>
+						<TextareaControl
+							label={ __( 'HTML', 'pressmind' ) }
+							value={ attributes.html }
+							rows={ 6 }
+							onChange={ ( html ) => setAttributes( { html } ) }
+						/>
+						<TextareaControl
+							label={ __( 'CSS', 'pressmind' ) }
+							value={ attributes.css }
+							rows={ 6 }
+							onChange={ ( css ) => setAttributes( { css } ) }
+						/>
+						<TextareaControl
+							label={ __( 'JavaScript', 'pressmind' ) }
+							value={ attributes.js }
+							rows={ 6 }
+							onChange={ ( js ) => setAttributes( { js } ) }
+						/>
+						<Notice status="warning" isDismissible={ false }>
+							{ __(
+								'Seamless mode is enabled. This block injects generated HTML, CSS, and JavaScript directly into the editor preview and the published page.',
+								'pressmind'
+							) }
+						</Notice>
+					</div>
+				) : null }
+				<SeamlessPreview attributes={ attributes } />
 			</div>
 		);
 	}
@@ -383,6 +480,7 @@ function AiEditPanel( { blockName, clientId, attributes } ) {
 							editMode: true,
 							sandboxGenerationDisabled:
 								isSandboxGenerationDisallowed,
+							seamlessMode: isSeamlessModeEnabled,
 							existingBlock: {
 								name: blockName,
 								serialized: serializedBlock,

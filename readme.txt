@@ -4,7 +4,7 @@ Tags: block-editor, ai, gutenberg, openai, blocks
 Requires at least: 6.5
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 0.0.6
+Stable tag: 0.0.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -80,7 +80,11 @@ Yes. On WordPress versions where the Connectors API is available, Pressmind can 
 
 = What happens to generated JavaScript? =
 
-Generated content that requires scripts, style tags, scoped CSS, or event handlers is isolated in a sandboxed iframe block.
+Generated content that requires scripts, style tags, scoped CSS, or event handlers is isolated in a sandboxed iframe block by default.
+
+= What is seamless mode? =
+
+Seamless mode is an opt-in setting that disables iframe sandboxing and injects generated HTML, CSS, and JavaScript directly into the page. It requires administrator consent and is disabled when `DISALLOW_UNFILTERED_HTML` is enabled.
 
 = Can Pressmind generate images? =
 
@@ -98,6 +102,12 @@ Pressmind is experimental. Review generated content and code before publishing.
 4. Settings screen with custom credentials and Connector support.
 
 == Changelog ==
+
+= 0.0.7 =
+* Added opt-in seamless mode for directly injected generated HTML, CSS, and JavaScript when unfiltered HTML is allowed.
+* Disabled seamless mode when `DISALLOW_UNFILTERED_HTML` is enabled.
+* Improved Connector endpoint display and automatic endpoint selection for Google/Gemini providers.
+* Moved response format into Advanced settings and added automatic response format selection by model/provider.
 
 = 0.0.6 =
 * Respect `DISALLOW_UNFILTERED_HTML` by disabling AI-generated sandbox iframe output when the site policy is enabled.
@@ -135,6 +145,9 @@ Pressmind is experimental. Review generated content and code before publishing.
 * Added optional image generation.
 
 == Upgrade Notice ==
+
+= 0.0.7 =
+Adds opt-in seamless rendering, provider-aware endpoint display, and automatic response format selection.
 
 = 0.0.6 =
 Disables AI-generated sandbox iframe output when `DISALLOW_UNFILTERED_HTML` is enabled for the site.
